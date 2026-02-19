@@ -5,6 +5,7 @@ import { defaultStudents } from '../data/sampleCourses';
 const normalizeStudent = (student) => ({
     ...student,
     courseIds: Array.isArray(student.courseIds) ? student.courseIds : [],
+    completedMissions: Array.isArray(student.completedMissions) ? student.completedMissions : [],
     grade: student.grade || 1, // Default grade 1
     admissionYear: student.admissionYear || new Date().getFullYear(), // Default current year
 });
@@ -62,6 +63,26 @@ export const useAuthStore = create(
                     }]
                 }));
                 return { ok: true };
+            },
+
+            enrollStudent: (studentId, courseId) => {
+                set(state => ({
+                    registeredStudents: state.registeredStudents.map(s =>
+                        s.studentId === studentId && !s.courseIds.includes(courseId)
+                            ? { ...s, courseIds: [...s.courseIds, courseId] }
+                            : s
+                    )
+                }));
+            },
+
+            unenrollStudent: (studentId, courseId) => {
+                set(state => ({
+                    registeredStudents: state.registeredStudents.map(s =>
+                        s.studentId === studentId
+                            ? { ...s, courseIds: s.courseIds.filter(id => id !== courseId) }
+                            : s
+                    )
+                }));
             },
 
             // Bulk registration

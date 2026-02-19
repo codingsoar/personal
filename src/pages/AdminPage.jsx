@@ -1,4 +1,4 @@
-﻿import { useState, useMemo } from 'react';
+﻿import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -749,7 +749,509 @@ const LearnersManagement = ({ registeredStudents, onAddStudent, onDeleteStudent,
     );
 };
 
+const MissionEditorModal = ({ isOpen, onClose, mission, onSave, difficulty }) => {
+    const [formData, setFormData] = useState({
+        title: '',
+        type: 'video',
+        description: '',
+        videoUrl: '',
+        taskDescription: '',
+        tutorialSteps: []
+    });
+
+    useEffect(() => {
+        if (mission) {
+            setFormData({
+                title: mission.title || '',
+                type: mission.type || 'video',
+                description: mission.description || '',
+                videoUrl: mission.videoUrl || '',
+                taskDescription: mission.taskDescription || '',
+                tutorialSteps: mission.tutorialSteps || []
+            });
+        } else {
+            setFormData({
+                title: '',
+                type: 'video',
+                description: '',
+                videoUrl: '',
+                taskDescription: '',
+                tutorialSteps: []
+            });
+        }
+    }, [mission, isOpen]);
+
+    if (!isOpen) return null;
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave({ ...mission, ...formData });
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-admin-card-dark w-full max-w-2xl rounded-2xl border border-white/10 shadow-2xl p-6 max-h-[90vh] overflow-y-auto">
+                <h3 className="text-xl font-bold text-white mb-6">
+                    Edit {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} Mission
+                </h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">Title</label>
+                        <input
+                            type="text"
+                            value={formData.title}
+                            onChange={e => setFormData({ ...formData, title: e.target.value })}
+                            className="w-full bg-background-dark border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-admin-primary focus:outline-none"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-1">Type</label>
+                        <select
+                            value={formData.type}
+                            onChange={e => setFormData({ ...formData, type: e.target.value })}
+                            className="w-full bg-background-dark border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-admin-primary focus:outline-none"
+                        >
+                            <option value="video">Video & Quiz</option>
+                            <option value="tutorial">Tutorial</option>
+                            <option value="practice">Practice Task</option>
+                        </select>
+                    </div>
+
+                    {formData.type === 'video' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Video URL (YouTube Embed)</label>
+                            <input
+                                type="text"
+                                value={formData.videoUrl}
+                                onChange={e => setFormData({ ...formData, videoUrl: e.target.value })}
+                                className="w-full bg-background-dark border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-admin-primary focus:outline-none"
+                                placeholder="https://www.youtube.com/embed/..."
+                            />
+                        </div>
+                    )}
+
+                    {formData.type === 'practice' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Task Description</label>
+                            <textarea
+                                value={formData.taskDescription}
+                                onChange={e => setFormData({ ...formData, taskDescription: e.target.value })}
+                                className="w-full bg-background-dark border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-admin-primary focus:outline-none h-32"
+                                placeholder="Describe the task..."
+                            />
+                        </div>
+                    )}
+
+                    {/* Simplified Tutorial Editor for brevity - can be expanded */}
+                    {formData.type === 'tutorial' && (
+                        <div className="p-4 bg-white/5 rounded-xl text-center text-gray-400 text-sm">
+                            Tutorial Step Editor is coming soon.
+                        </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-xl text-gray-300 hover:bg-white/5 transition-colors">Cancel</button>
+                        <button type="submit" className="px-4 py-2 rounded-xl bg-admin-primary text-white hover:bg-admin-primary/90 transition-colors">Save Mission</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const EnrollStudentModal = ({ isOpen, onClose, courseId, onEnroll }) => {
+    const { registeredStudents } = useAuthStore();
+    const [selectedStudents, setSelectedStudents] = useState([]);
+
+    // Filter students NOT already enrolled in this course
+    const availableStudents = useMemo(() =>
+        registeredStudents.filter(s => !s.courseIds.includes(courseId))
+        , [registeredStudents, courseId]);
+
+    const handleToggle = (studentId) => {
+        if (selectedStudents.includes(studentId)) {
+            setSelectedStudents(selectedStudents.filter(id => id !== studentId));
+        } else {
+            setSelectedStudents([...selectedStudents, studentId]);
+        }
+    };
+
+    const handleEnroll = () => {
+        onEnroll(selectedStudents);
+        onClose();
+        setSelectedStudents([]);
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-admin-card-dark w-full max-w-2xl rounded-2xl border border-white/10 shadow-2xl p-6 flex flex-col max-h-[80vh]">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-bold text-white">Enroll Students</h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+                        <span className="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-2">
+                    {availableStudents.length === 0 ? (
+                        <p className="text-gray-500 text-center py-8">All students are already enrolled.</p>
+                    ) : (
+                        availableStudents.map(student => (
+                            <div
+                                key={student.studentId}
+                                className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${selectedStudents.includes(student.studentId)
+                                    ? 'bg-admin-primary/10 border-admin-primary'
+                                    : 'bg-background-dark border-white/5 hover:border-white/10'
+                                    }`}
+                                onClick={() => handleToggle(student.studentId)}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${selectedStudents.includes(student.studentId)
+                                        ? 'bg-admin-primary border-admin-primary'
+                                        : 'border-gray-500'
+                                        }`}>
+                                        {selectedStudents.includes(student.studentId) && (
+                                            <span className="material-symbols-outlined text-[14px] text-white">check</span>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <p className="text-white font-medium">{student.name} <span className="text-gray-500 text-sm">({student.studentId})</span></p>
+                                        <p className="text-gray-500 text-xs">Grade {student.grade} • {student.admissionYear}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                <div className="pt-6 border-t border-white/10 mt-4 flex justify-end gap-3">
+                    <button onClick={onClose} className="px-4 py-2 rounded-xl text-gray-300 hover:bg-white/5 transition-colors">Cancel</button>
+                    <button
+                        onClick={handleEnroll}
+                        disabled={selectedStudents.length === 0}
+                        className="px-4 py-2 rounded-xl bg-admin-primary text-white hover:bg-admin-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Enroll {selectedStudents.length} Students
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const CourseEditor = ({ course, onBack }) => {
+    const { addStage, updateStage, deleteStage, getCourse } = useStageStore();
+    const { registeredStudents, enrollStudent, unenrollStudent } = useAuthStore();
+
+    // Re-fetch course to ensure fresh state
+    const currentCourse = getCourse(course.id) || course;
+
+    const [activeTab, setActiveTab] = useState('curriculum'); // 'curriculum' | 'students'
+    const [isStageModalOpen, setIsStageModalOpen] = useState(false);
+    const [editingStage, setEditingStage] = useState(null);
+    const [stageFormData, setStageFormData] = useState({ title: '', description: '' });
+
+    const [isMissionModalOpen, setIsMissionModalOpen] = useState(false);
+    const [editingMission, setEditingMission] = useState({ stageId: null, difficulty: null, data: null });
+
+    const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+
+    const enrolledStudents = useMemo(() =>
+        registeredStudents.filter(s => s.courseIds.includes(currentCourse.id))
+        , [registeredStudents, currentCourse.id]);
+
+    const handleEnrollStudents = (studentIds) => {
+        studentIds.forEach(id => enrollStudent(id, currentCourse.id));
+    };
+
+    const handleStageSubmit = (e) => {
+        e.preventDefault();
+        if (editingStage) {
+            updateStage(course.id, editingStage.id, stageFormData);
+        } else {
+            addStage(course.id, {
+                id: `stage-${Date.now()}`,
+                courseId: course.id,
+                title: stageFormData.title,
+                description: stageFormData.description,
+                order: currentCourse.stages.length + 1,
+                missions: { easy: null, normal: null, hard: null }
+            });
+        }
+        setIsStageModalOpen(false);
+        setEditingStage(null);
+        setStageFormData({ title: '', description: '' });
+    };
+
+    const openMissionEditor = (stageId, difficulty, missionData) => {
+        setEditingMission({ stageId, difficulty, data: missionData });
+        setIsMissionModalOpen(true);
+    };
+
+    const saveMission = (updatedMission) => {
+        const stage = currentCourse.stages.find(s => s.id === editingMission.stageId);
+        if (!stage) return;
+
+        const updatedMissions = {
+            ...stage.missions,
+            [editingMission.difficulty]: updatedMission
+        };
+
+        updateStage(course.id, editingMission.stageId, { missions: updatedMissions });
+    };
+
+    return (
+        <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                    <button onClick={onBack} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 transition-colors">
+                        <span className="material-symbols-outlined">arrow_back</span>
+                    </button>
+                    <div>
+                        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                            <span className="text-3xl">{currentCourse.icon}</span>
+                            {currentCourse.title}
+                        </h2>
+                        <p className="text-gray-400 text-sm">Curriculum Design & Enrollment</p>
+                    </div>
+                </div>
+
+                {/* Tabs */}
+                <div className="bg-white/5 p-1 rounded-xl flex gap-1">
+                    <button
+                        onClick={() => setActiveTab('curriculum')}
+                        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'curriculum' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'
+                            }`}
+                    >
+                        Curriculum
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('students')}
+                        className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'students' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'
+                            }`}
+                    >
+                        Students ({enrolledStudents.length})
+                    </button>
+                </div>
+
+                {activeTab === 'curriculum' ? (
+                    <button
+                        onClick={() => {
+                            setEditingStage(null);
+                            setStageFormData({ title: '', description: '' });
+                            setIsStageModalOpen(true);
+                        }}
+                        className="flex items-center gap-2 bg-admin-primary hover:bg-admin-primary/90 text-white px-4 py-2 rounded-xl font-medium text-sm transition-all shadow-lg shadow-admin-primary/20"
+                    >
+                        <span className="material-symbols-outlined text-[18px]">add</span>
+                        Add Stage
+                    </button>
+                ) : (
+                    <button
+                        onClick={() => setIsEnrollModalOpen(true)}
+                        className="flex items-center gap-2 bg-admin-primary hover:bg-admin-primary/90 text-white px-4 py-2 rounded-xl font-medium text-sm transition-all shadow-lg shadow-admin-primary/20"
+                    >
+                        <span className="material-symbols-outlined text-[18px]">person_add</span>
+                        Enroll Students
+                    </button>
+                )}
+            </div>
+
+            {/* Content Area */}
+            {activeTab === 'curriculum' ? (
+                /* Stage List */
+                <div className="space-y-4">
+                    {currentCourse.stages.length === 0 ? (
+                        <div className="text-center py-20 bg-admin-card-dark rounded-2xl border border-white/5 border-dashed">
+                            <span className="material-symbols-outlined text-4xl text-gray-600 mb-2">layers</span>
+                            <p className="text-gray-500">No stages yet. Add one to start designing the curriculum.</p>
+                        </div>
+                    ) : (
+                        currentCourse.stages.sort((a, b) => a.order - b.order).map((stage, index) => (
+                            <div key={stage.id} className="bg-admin-card-dark rounded-xl border border-white/5 overflow-hidden">
+                                {/* Stage Header */}
+                                <div className="p-4 bg-white/5 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-bold text-gray-300">
+                                            {index + 1}
+                                        </div>
+                                        <div>
+                                            <h4 className="text-white font-bold">{stage.title}</h4>
+                                            <p className="text-gray-400 text-xs">{stage.description}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setEditingStage(stage);
+                                                setStageFormData({ title: stage.title, description: stage.description });
+                                                setIsStageModalOpen(true);
+                                            }}
+                                            className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                                        >
+                                            <span className="material-symbols-outlined text-sm">edit</span>
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                if (window.confirm('Delete this stage?')) deleteStage(course.id, stage.id);
+                                            }}
+                                            className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors"
+                                        >
+                                            <span className="material-symbols-outlined text-sm">delete</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Missions Grid */}
+                                <div className="grid grid-cols-3 gap-4 p-4 border-t border-white/5">
+                                    {['easy', 'normal', 'hard'].map(difficulty => {
+                                        const mission = stage.missions?.[difficulty];
+                                        return (
+                                            <div key={difficulty} className="bg-background-dark rounded-lg p-3 border border-white/5 flex flex-col gap-2 relative group hover:border-admin-secondary/30 transition-colors">
+                                                <div className="flex justify-between items-start">
+                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${difficulty === 'easy' ? 'bg-admin-green/10 text-admin-green' :
+                                                        difficulty === 'normal' ? 'bg-admin-secondary/10 text-admin-secondary' :
+                                                            'bg-admin-pink/10 text-admin-pink'
+                                                        }`}>
+                                                        {difficulty}
+                                                    </span>
+                                                    {mission && (
+                                                        <span className="material-symbols-outlined text-xs text-gray-500">
+                                                            {mission.type === 'video' ? 'play_circle' : mission.type === 'tutorial' ? 'menu_book' : 'task'}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="min-h-[40px] flex items-center justify-center text-center">
+                                                    {mission ? (
+                                                        <span className="text-sm text-gray-200 font-medium line-clamp-2">{mission.title}</span>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-600 italic">No mission set</span>
+                                                    )}
+                                                </div>
+
+                                                <button
+                                                    onClick={() => openMissionEditor(stage.id, difficulty, mission)}
+                                                    className="w-full mt-auto py-1.5 rounded bg-white/5 hover:bg-white/10 text-xs text-gray-400 hover:text-white transition-colors border border-white/5"
+                                                >
+                                                    {mission ? 'Edit Mission' : 'Add Mission'}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            ) : (
+                /* Student List */
+                <div className="bg-admin-card-dark rounded-2xl border border-white/5 overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-white/5 text-gray-400 text-xs uppercase tracking-wider">
+                                <th className="px-6 py-4 font-semibold">Name</th>
+                                <th className="px-6 py-4 font-semibold">Student ID</th>
+                                <th className="px-6 py-4 font-semibold">Grade</th>
+                                <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5 text-sm">
+                            {enrolledStudents.length === 0 ? (
+                                <tr>
+                                    <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                                        No students enrolled in this course yet.
+                                    </td>
+                                </tr>
+                            ) : (
+                                enrolledStudents.map(student => (
+                                    <tr key={student.studentId} className="hover:bg-white/5 transition-colors">
+                                        <td className="px-6 py-4 font-medium text-white">{student.name}</td>
+                                        <td className="px-6 py-4 text-gray-400">{student.studentId}</td>
+                                        <td className="px-6 py-4 text-gray-400">{student.grade}</td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button
+                                                onClick={() => {
+                                                    if (window.confirm(`Unenroll ${student.name} from this course?`)) {
+                                                        unenrollStudent(student.studentId, course.id);
+                                                    }
+                                                }}
+                                                className="text-red-400 hover:text-red-300 hover:bg-red-500/10 px-3 py-1 rounded-lg text-xs transition-colors"
+                                            >
+                                                Unenroll
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Stage Modal */}
+            {isStageModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-admin-card-dark w-full max-w-md rounded-2xl border border-white/10 shadow-2xl p-6">
+                        <h3 className="text-xl font-bold text-white mb-4">{editingStage ? 'Edit Stage' : 'Add New Stage'}</h3>
+                        <form onSubmit={handleStageSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Title</label>
+                                <input
+                                    type="text"
+                                    value={stageFormData.title}
+                                    onChange={e => setStageFormData({ ...stageFormData, title: e.target.value })}
+                                    className="w-full bg-background-dark border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-admin-primary focus:outline-none"
+                                    placeholder="e.g. Chapter 1: Basics"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Description</label>
+                                <textarea
+                                    value={stageFormData.description}
+                                    onChange={e => setStageFormData({ ...stageFormData, description: e.target.value })}
+                                    className="w-full bg-background-dark border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-admin-primary focus:outline-none"
+                                    placeholder="Brief summary of this stage"
+                                    rows="3"
+                                />
+                            </div>
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button type="button" onClick={() => setIsStageModalOpen(false)} className="px-4 py-2 rounded-xl text-gray-300 hover:bg-white/5 transition-colors">Cancel</button>
+                                <button type="submit" className="px-4 py-2 rounded-xl bg-admin-primary text-white hover:bg-admin-primary/90 transition-colors">{editingStage ? 'Save Changes' : 'Create Stage'}</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Mission Modal */}
+            <MissionEditorModal
+                isOpen={isMissionModalOpen}
+                onClose={() => setIsMissionModalOpen(false)}
+                mission={editingMission.data}
+                difficulty={editingMission.difficulty || ''}
+                onSave={saveMission}
+            />
+
+            {/* Enroll Student Modal */}
+            <EnrollStudentModal
+                isOpen={isEnrollModalOpen}
+                onClose={() => setIsEnrollModalOpen(false)}
+                courseId={course.id}
+                onEnroll={handleEnrollStudents}
+            />
+        </div>
+    );
+};
+
 const ClassManagement = ({ courses, onAddCourse, onDeleteCourse }) => {
+    const [selectedCourse, setSelectedCourse] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [openMenuId, setOpenMenuId] = useState(null);
     const [formData, setFormData] = useState({ title: '', description: '' });
@@ -781,6 +1283,10 @@ const ClassManagement = ({ courses, onAddCourse, onDeleteCourse }) => {
         setError('');
     };
 
+    if (selectedCourse) {
+        return <CourseEditor course={selectedCourse} onBack={() => setSelectedCourse(null)} />;
+    }
+
 
     return (
         <div className="max-w-7xl mx-auto space-y-8">
@@ -811,7 +1317,11 @@ const ClassManagement = ({ courses, onAddCourse, onDeleteCourse }) => {
                         </thead>
                         <tbody className="divide-y divide-white/5 text-sm">
                             {courses.map((course) => (
-                                <tr key={course.id} className="group hover:bg-white/5 transition-colors">
+                                <tr
+                                    key={course.id}
+                                    className="group hover:bg-white/5 transition-colors cursor-pointer"
+                                    onClick={() => setSelectedCourse(course)}
+                                >
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-lg bg-admin-primary/20 flex items-center justify-center text-2xl">
@@ -828,7 +1338,10 @@ const ClassManagement = ({ courses, onAddCourse, onDeleteCourse }) => {
                                     </td>
                                     <td className="px-6 py-4 text-right relative">
                                         <button
-                                            onClick={() => setOpenMenuId(openMenuId === course.id ? null : course.id)}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenMenuId(openMenuId === course.id ? null : course.id);
+                                            }}
                                             className="text-gray-400 hover:text-white transition-colors p-1 rounded-full hover:bg-white/10"
                                         >
                                             <span className="material-symbols-outlined">more_vert</span>
