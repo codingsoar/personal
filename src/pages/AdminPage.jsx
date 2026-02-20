@@ -750,14 +750,18 @@ const LearnersManagement = ({ registeredStudents, onAddStudent, onDeleteStudent,
 };
 
 const MissionEditorModal = ({ isOpen, onClose, mission, onSave, difficulty }) => {
+    const MAX_TUTORIAL_HTML_BYTES = 1024 * 1024; // 1 MB
     const [formData, setFormData] = useState({
         title: '',
         type: 'video',
         description: '',
         videoUrl: '',
         taskDescription: '',
-        tutorialSteps: []
+        tutorialSteps: [],
+        htmlContent: '',
+        htmlFileName: ''
     });
+    const [uploadError, setUploadError] = useState('');
 
     useEffect(() => {
         if (mission) {
@@ -767,7 +771,9 @@ const MissionEditorModal = ({ isOpen, onClose, mission, onSave, difficulty }) =>
                 description: mission.description || '',
                 videoUrl: mission.videoUrl || '',
                 taskDescription: mission.taskDescription || '',
-                tutorialSteps: mission.tutorialSteps || []
+                tutorialSteps: mission.tutorialSteps || [],
+                htmlContent: mission.htmlContent || '',
+                htmlFileName: mission.htmlFileName || ''
             });
         } else {
             setFormData({
@@ -776,9 +782,12 @@ const MissionEditorModal = ({ isOpen, onClose, mission, onSave, difficulty }) =>
                 description: '',
                 videoUrl: '',
                 taskDescription: '',
-                tutorialSteps: []
+                tutorialSteps: [],
+                htmlContent: '',
+                htmlFileName: ''
             });
         }
+        setUploadError('');
     }, [mission, isOpen]);
 
     if (!isOpen) return null;
@@ -787,6 +796,29 @@ const MissionEditorModal = ({ isOpen, onClose, mission, onSave, difficulty }) =>
         e.preventDefault();
         onSave({ ...mission, ...formData });
         onClose();
+    };
+
+    const handleTutorialFileUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (file.size > MAX_TUTORIAL_HTML_BYTES) {
+            setUploadError('File is too large. Please upload an HTML file smaller than 1 MB.');
+            return;
+        }
+
+        try {
+            const text = await file.text();
+            setFormData(prev => ({
+                ...prev,
+                htmlContent: text,
+                htmlFileName: file.name
+            }));
+            setUploadError('');
+        } catch (error) {
+            setUploadError('Failed to read file. Please try again with a valid HTML file.');
+            console.error(error);
+        }
     };
 
     return (
@@ -846,8 +878,27 @@ const MissionEditorModal = ({ isOpen, onClose, mission, onSave, difficulty }) =>
 
                     {/* Simplified Tutorial Editor for brevity - can be expanded */}
                     {formData.type === 'tutorial' && (
-                        <div className="p-4 bg-white/5 rounded-xl text-center text-gray-400 text-sm">
-                            Tutorial Step Editor is coming soon.
+                        <div className="space-y-3 p-4 bg-white/5 rounded-xl">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Tutorial HTML File</label>
+                                <input
+                                    type="file"
+                                    accept=".html,.htm,text/html"
+                                    onChange={handleTutorialFileUpload}
+                                    className="w-full bg-background-dark border border-white/10 rounded-xl px-4 py-2.5 text-white focus:border-admin-primary focus:outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-admin-primary/20 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-admin-primary hover:file:bg-admin-primary/30"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Upload a standalone tutorial HTML (max 1 MB). Inline styles/scripts are allowed.
+                                </p>
+                            </div>
+                            {uploadError && (
+                                <p className="text-sm text-red-400">{uploadError}</p>
+                            )}
+                            <div className="text-xs text-gray-400">
+                                {formData.htmlContent
+                                    ? `Loaded: ${formData.htmlFileName || 'inline tutorial'} (${formData.htmlContent.length.toLocaleString()} chars)`
+                                    : 'No tutorial HTML uploaded yet.'}
+                            </div>
                         </div>
                     )}
 

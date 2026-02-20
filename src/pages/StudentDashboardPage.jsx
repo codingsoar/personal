@@ -1,29 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProgressStore } from '../stores/useProgressStore';
 import { useStageStore } from '../stores/useStageStore';
-import { Button } from '@heroui/react';
 
 export default function StudentDashboardPage() {
     const navigate = useNavigate();
     const { user, logout } = useAuthStore();
     const { getStudentProgress } = useProgressStore();
     const { courses } = useStageStore();
+    const [activeTab, setActiveTab] = useState('dashboard');
 
     // Mock Data for Dashboard (Replace with real data from stores as needed)
-    const [xp, setXP] = useState(12450);
-    const [level, setLevel] = useState(12);
-    const [nextLevelXP, setNextLevelXP] = useState(13000);
+    const xp = 12450;
+    const level = 12;
+    const nextLevelXP = 13000;
     const streak = 14;
     const globalRank = 42;
     const completedCourses = 8;
 
     const progressPercentage = (xp / nextLevelXP) * 100;
+    const myClasses = courses;
 
-    useEffect(() => {
-        // If real data logic exists, update state here
-    }, [user]);
+    const getCourseCompletion = (courseId) => {
+        if (!user?.studentId) return 0;
+        const selectedCourse = courses.find((course) => course.id === courseId);
+        if (!selectedCourse || selectedCourse.stages.length === 0) return 0;
+
+        const studentProgress = getStudentProgress(user.studentId, courseId);
+        const completedStages = selectedCourse.stages.filter((stage) => {
+            const stageProgress = studentProgress?.[stage.id];
+            return stageProgress?.easy && stageProgress?.normal && stageProgress?.hard;
+        }).length;
+
+        return Math.round((completedStages / selectedCourse.stages.length) * 100);
+    };
 
     const handleLogout = () => {
         logout();
@@ -44,19 +55,27 @@ export default function StudentDashboardPage() {
                 </div>
 
                 <nav className="flex-1 flex flex-col gap-2 p-4">
-                    <a className="flex items-center gap-4 px-4 py-3 rounded-xl bg-primary/10 text-primary font-medium transition-all group" href="#">
+                    <button
+                        onClick={() => setActiveTab('dashboard')}
+                        className={`flex items-center gap-4 px-4 py-3 rounded-xl font-medium transition-all group w-full text-left ${activeTab === 'dashboard'
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            }`}
+                    >
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">dashboard</span>
                         <span className="hidden lg:block">Dashboard</span>
-                    </a>
-                    <button onClick={() => navigate('/courses')} className="flex items-center gap-4 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all group w-full text-left">
-                        <span className="material-symbols-outlined group-hover:scale-110 transition-transform">school</span>
-                        <span className="hidden lg:block">My Courses</span>
                     </button>
-                    <a className="flex items-center gap-4 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all group" href="#">
+                    <button
+                        onClick={() => setActiveTab('myClass')}
+                        className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-all group w-full text-left ${activeTab === 'myClass'
+                                ? 'bg-primary/10 text-primary font-medium'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            }`}
+                    >
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">menu_book</span>
                         <span className="hidden lg:block">My Class</span>
-                        <span className="hidden lg:flex ml-auto bg-accent-pink text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(241,91,181,0.5)]">3</span>
-                    </a>
+                        <span className="hidden lg:flex ml-auto bg-accent-pink text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(241,91,181,0.5)]">{myClasses.length}</span>
+                    </button>
                     <a className="flex items-center gap-4 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all group" href="#">
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">emoji_events</span>
                         <span className="hidden lg:block">Leaderboard</span>
@@ -112,6 +131,8 @@ export default function StudentDashboardPage() {
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-20 scroll-smooth">
+                    {activeTab === 'dashboard' ? (
+                        <>
                     {/* Welcome Section */}
                     <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                         <div className="xl:col-span-2 bg-white rounded-lg p-6 md:p-8 relative overflow-hidden shadow-card border border-accent-purple/30">
@@ -328,6 +349,56 @@ export default function StudentDashboardPage() {
                             </div>
                         </div>
                     </section>
+                        </>
+                    ) : (
+                        <section className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-bold">My Class</h2>
+                                    <p className="text-slate-500 text-sm mt-1">Shows classes created in Admin &gt; Class tab.</p>
+                                </div>
+                                <button onClick={() => setActiveTab('dashboard')} className="text-sm font-medium text-primary hover:text-secondary hover:underline transition-colors">Back to Dashboard</button>
+                            </div>
+
+                            {myClasses.length > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                    {myClasses.map((course) => {
+                                        const completion = getCourseCompletion(course.id);
+                                        return (
+                                            <button
+                                                key={course.id}
+                                                onClick={() => navigate(`/course/${course.id}`)}
+                                                className="text-left bg-white rounded-xl p-5 border border-accent-purple/20 shadow-card hover:shadow-lg hover:scale-[1.01] transition-all group"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <span className="text-3xl">{course.icon || '📘'}</span>
+                                                        <div className="min-w-0">
+                                                            <h3 className="font-bold text-lg leading-tight truncate group-hover:text-primary transition-colors">{course.title}</h3>
+                                                            <p className="text-sm text-slate-500 line-clamp-2">{course.description || 'No class description'}</p>
+                                                        </div>
+                                                    </div>
+                                                    <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">arrow_forward</span>
+                                                </div>
+
+                                                <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+                                                    <span>{course.stages.length} Stages</span>
+                                                    <span className="font-semibold text-primary">{completion}%</span>
+                                                </div>
+                                                <div className="mt-1 h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${completion}%` }} />
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="bg-white rounded-xl border border-accent-purple/20 p-8 text-center text-slate-500">
+                                    No classes available yet. Add classes in Admin page.
+                                </div>
+                            )}
+                        </section>
+                    )}
                 </div>
             </main>
         </div>

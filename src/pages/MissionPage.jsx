@@ -129,9 +129,45 @@ function VideoView({ mission, onComplete }) {
 
 /* ─── 튜토리얼 뷰 (중) ─── */
 function TutorialView({ mission, onComplete }) {
+    const [checked, setChecked] = useState(false);
     const [step, setStep] = useState(0);
+    const hasHtmlTutorial = typeof mission.htmlContent === 'string' && mission.htmlContent.trim().length > 0;
     const steps = mission.tutorialSteps || [];
     const isLast = step === steps.length - 1;
+
+    if (hasHtmlTutorial) {
+        return (
+            <div className="space-y-6">
+                <Card className="sq-card">
+                    <CardBody className="p-3 md:p-4 space-y-3">
+                        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--sq-border)', background: 'var(--sq-surface)' }}>
+                            <iframe
+                                srcDoc={mission.htmlContent}
+                                title={mission.title}
+                                className="w-full min-h-[60vh]"
+                                sandbox="allow-scripts allow-forms allow-modals allow-popups"
+                            />
+                        </div>
+                    </CardBody>
+                </Card>
+                <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer" style={{ color: 'var(--sq-muted)' }}>
+                        <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={e => setChecked(e.target.checked)}
+                            className="w-4 h-4"
+                            style={{ accentColor: 'var(--sq-primary)' }}
+                        />
+                        Tutorial completed
+                    </label>
+                    <Button color="success" isDisabled={!checked} onPress={onComplete} endContent={<Check size={16} />}>
+                        Complete
+                    </Button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -237,6 +273,7 @@ export default function MissionPage() {
     const stage = getStage(courseId, stageId);
     const mission = stage?.missions?.[difficulty];
     const alreadyDone = isMissionCompleted(user?.studentId, courseId, stageId, difficulty);
+    const missionType = mission?.type || (difficulty === 'easy' ? 'video' : difficulty === 'normal' ? 'tutorial' : 'practice');
 
     if (!mission) return <div className="p-8" style={{ color: 'var(--sq-text)' }}>미션을 찾을 수 없습니다.</div>;
 
@@ -278,9 +315,9 @@ export default function MissionPage() {
                     {alreadyDone && <Star size={24} className="text-amber-400 fill-amber-400 star-glow ml-auto" />}
                 </div>
 
-                {difficulty === 'easy' && <VideoView mission={mission} onComplete={handleComplete} />}
-                {difficulty === 'normal' && <TutorialView mission={mission} onComplete={handleComplete} />}
-                {difficulty === 'hard' && <PracticeView mission={mission} onSubmit={handlePracticeSubmit} />}
+                {missionType === 'video' && <VideoView mission={mission} onComplete={handleComplete} />}
+                {missionType === 'tutorial' && <TutorialView mission={mission} onComplete={handleComplete} />}
+                {missionType === 'practice' && <PracticeView mission={mission} onSubmit={handlePracticeSubmit} />}
 
                 <CelebrationModal isOpen={showCelebration} onClose={() => { setShowCelebration(false); navigate(`/course/${courseId}/stage/${stageId}`); }} />
             </div>
