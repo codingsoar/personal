@@ -1,6 +1,21 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import { sampleCourses } from '../data/sampleCourses';
+
+// IndexedDB storage adapter for large data (no 5MB localStorage limit)
+const indexedDBStorage = {
+    getItem: async (name) => {
+        const value = await idbGet(name);
+        return value ?? null;
+    },
+    setItem: async (name, value) => {
+        await idbSet(name, value);
+    },
+    removeItem: async (name) => {
+        await idbDel(name);
+    },
+};
 
 export const useStageStore = create(
     persist(
@@ -56,6 +71,9 @@ export const useStageStore = create(
                 }));
             },
         }),
-        { name: 'starquest-stages' }
+        {
+            name: 'starquest-stages',
+            storage: createJSONStorage(() => indexedDBStorage),
+        }
     )
 );

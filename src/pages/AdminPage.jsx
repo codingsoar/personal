@@ -750,7 +750,7 @@ const LearnersManagement = ({ registeredStudents, onAddStudent, onDeleteStudent,
 };
 
 const MissionEditorModal = ({ isOpen, onClose, mission, onSave, difficulty }) => {
-    const MAX_TUTORIAL_HTML_BYTES = 1024 * 1024; // 1 MB
+    const MAX_TUTORIAL_HTML_BYTES = 50 * 1024 * 1024; // 50 MB
     const [formData, setFormData] = useState({
         title: '',
         type: 'video',

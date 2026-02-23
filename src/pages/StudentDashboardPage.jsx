@@ -142,40 +142,37 @@ export default function StudentDashboardPage() {
         const [answers, setAnswers] = useState({});
         const [showResult, setShowResult] = useState(false);
         const [videoEnded, setVideoEnded] = useState(false);
-        const playerContainerRef = useRef(null);
-        const playerRef = useRef(null);
         const questions = mission.quizQuestions || [];
         const hasQuiz = questions.length > 0;
+        const playerContainerRef = useRef(null);
+        const playerRef = useRef(null);
 
-        // Parse YouTube embed URL to extract videoId and params
-        const parseYouTubeUrl = (url) => {
-            if (!url) return { videoId: '', playerVars: {} };
-            const idMatch = url.match(/embed\/([^?&/]+)/);
-            const videoId = idMatch ? idMatch[1] : '';
-            const playerVars = {};
-            try {
-                const u = new URL(url);
-                u.searchParams.forEach((v, k) => { if (k !== 'si') playerVars[k] = v; });
-            } catch (e) { /* ignore */ }
-            return { videoId, playerVars };
-        };
-
-        // YouTube IFrame API: detect video end for non-quiz missions
         useEffect(() => {
-            if (hasQuiz || quizStarted) return;
-            const { videoId, playerVars } = parseYouTubeUrl(mission.videoUrl);
-            if (!videoId) return;
+            if (quizStarted || !mission.videoUrl) return;
+
+            // Extract video ID from embed URL
+            const match = mission.videoUrl.match(/\/embed\/([^?&/]+)/);
+            if (!match) return;
+            const videoId = match[1];
+
+            // Extract start time if present
+            const startMatch = mission.videoUrl.match(/[?&]start=(\d+)/);
+            const startSeconds = startMatch ? parseInt(startMatch[1]) : 0;
 
             const initPlayer = () => {
                 if (!playerContainerRef.current) return;
-                if (playerRef.current) { try { playerRef.current.destroy(); } catch (e) { } }
                 playerRef.current = new window.YT.Player(playerContainerRef.current, {
                     videoId,
-                    playerVars: { ...playerVars, rel: 0 },
+                    playerVars: { start: startSeconds, rel: 0 },
                     events: {
-                        onStateChange: (event) => {
-                            if (event.data === window.YT.PlayerState.ENDED) {
+                        onStateChange: (e) => {
+                            if (e.data === window.YT.PlayerState.ENDED) {
                                 setVideoEnded(true);
+                                if (!hasQuiz) {
+                                    onComplete();
+                                } else {
+                                    setQuizStarted(true);
+                                }
                             }
                         }
                     }
@@ -185,51 +182,38 @@ export default function StudentDashboardPage() {
             if (window.YT && window.YT.Player) {
                 initPlayer();
             } else {
+                // Load API if not already loaded
                 if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
                     const tag = document.createElement('script');
                     tag.src = 'https://www.youtube.com/iframe_api';
-                    document.head.appendChild(tag);
+                    document.body.appendChild(tag);
                 }
-                const prevCb = window.onYouTubeIframeAPIReady;
-                window.onYouTubeIframeAPIReady = () => {
-                    if (prevCb) prevCb();
-                    initPlayer();
-                };
+                window.onYouTubeIframeAPIReady = initPlayer;
             }
 
             return () => {
-                if (playerRef.current) { try { playerRef.current.destroy(); } catch (e) { } playerRef.current = null; }
+                if (playerRef.current?.destroy) playerRef.current.destroy();
             };
-        }, [hasQuiz, quizStarted, mission.videoUrl]);
+        }, [mission.videoUrl, quizStarted]);
 
         if (!quizStarted) {
             return (
                 <div className="space-y-6">
-                    {hasQuiz ? (
-                        <div className="aspect-video rounded-xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xl">
-                            <iframe src={mission.videoUrl} className="w-full h-full" allowFullScreen />
-                        </div>
-                    ) : (
-                        <div className="aspect-video rounded-xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xl">
-                            <div ref={playerContainerRef} className="w-full h-full" />
-                        </div>
-                    )}
+                    <div className="aspect-video rounded-xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xl">
+                        <div ref={playerContainerRef} className="w-full h-full" />
+                    </div>
                     <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200">
+                        <span className={`text-sm font-medium flex items-center gap-2 ${videoEnded ? 'text-green-600' : 'text-slate-400'}`}>
+                            {videoEnded ? (
+                                <><span className="material-symbols-outlined text-green-500 text-base">check_circle</span> 시청 완료</>
+                            ) : (
+                                <><span className="material-symbols-outlined text-slate-400 text-base animate-pulse">play_circle</span> 동영상을 시청해 주세요</>
+                            )}
+                        </span>
                         {hasQuiz ? (
-                            <>
-                                <p className="text-sm text-slate-400">영상을 시청한 후 퀴즈를 풀어주세요.</p>
-                                <Button color="primary" onPress={() => setQuizStarted(true)}>Take Quiz →</Button>
-                            </>
-                        ) : videoEnded ? (
-                            <>
-                                <p className="text-sm text-green-600 font-semibold flex items-center gap-1"><Check size={16} /> 영상 시청 완료!</p>
-                                <Button color="success" className="text-white font-bold" onPress={onComplete}>Complete Mission →</Button>
-                            </>
+                            <Button color="primary" isDisabled={!videoEnded} onPress={() => setQuizStarted(true)}>Take Quiz →</Button>
                         ) : (
-                            <>
-                                <p className="text-sm text-slate-400">🎬 영상을 끝까지 시청하면 완료 버튼이 나타납니다.</p>
-                                <Button color="default" isDisabled>Complete Mission</Button>
-                            </>
+                            <Button color="success" className="text-white font-bold" isDisabled={!videoEnded} onPress={onComplete}>Complete Mission →</Button>
                         )}
                     </div>
                 </div>
