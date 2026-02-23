@@ -6,10 +6,6 @@ import { useAuthStore } from './stores/useAuthStore';
 import StudentLoginPage from './pages/StudentLoginPage';
 import AdminLoginPage from './pages/AdminLoginPage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
-import CourseSelectPage from './pages/CourseSelectPage';
-import StageMapPage from './pages/StageMapPage';
-import StagePage from './pages/StagePage';
-import MissionPage from './pages/MissionPage';
 import ProfilePage from './pages/ProfilePage';
 import AdminPage from './pages/AdminPage';
 
@@ -36,10 +32,6 @@ export default function App() {
             <Route path="/" element={<StudentLoginPage />} />
             <Route path="/admin-login" element={<AdminLoginPage />} />
             <Route path="/dashboard" element={<ProtectedRoute><StudentDashboardPage /></ProtectedRoute>} />
-            <Route path="/courses" element={<ProtectedRoute><CourseSelectPage /></ProtectedRoute>} />
-            <Route path="/course/:courseId" element={<ProtectedRoute><StageMapPage /></ProtectedRoute>} />
-            <Route path="/course/:courseId/stage/:stageId" element={<ProtectedRoute><StagePage /></ProtectedRoute>} />
-            <Route path="/course/:courseId/stage/:stageId/mission/:difficulty" element={<ProtectedRoute><MissionPage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
           </Routes>

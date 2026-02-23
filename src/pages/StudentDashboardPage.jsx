@@ -1,15 +1,21 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useMemo, useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProgressStore } from '../stores/useProgressStore';
 import { useStageStore } from '../stores/useStageStore';
+import { Button, Card, CardBody, Progress, Modal, ModalContent, ModalBody } from '@heroui/react';
+import { ChevronLeft, Star, Upload, ChevronRight, Check, Play, BookOpen } from 'lucide-react';
 
 export default function StudentDashboardPage() {
     const navigate = useNavigate();
+    const location = useLocation();
     const { user, logout } = useAuthStore();
     const { getStudentProgress } = useProgressStore();
     const { courses } = useStageStore();
-    const [activeTab, setActiveTab] = useState('dashboard');
+    const activeTab = useMemo(() => {
+        const tab = new URLSearchParams(location.search).get('tab');
+        return tab === 'myClass' ? 'myClass' : 'dashboard';
+    }, [location.search]);
 
     // Mock Data for Dashboard (Replace with real data from stores as needed)
     const xp = 12450;
@@ -41,6 +47,224 @@ export default function StudentDashboardPage() {
         navigate('/');
     };
 
+    // --- View State for Navigation ---
+    const [currentView, setCurrentView] = useState('list'); // 'list', 'map', 'mission'
+    const [selectedCourseId, setSelectedCourseId] = useState(null);
+    const [selectedStageId, setSelectedStageId] = useState(null);
+    const [selectedDifficulty, setSelectedDifficulty] = useState(null);
+
+    // Sync tab changes with view resets
+    useEffect(() => {
+        setCurrentView('list');
+        setSelectedCourseId(null);
+        setSelectedStageId(null);
+        setSelectedDifficulty(null);
+    }, [activeTab]);
+
+    const selectedCourse = useMemo(() => courses.find(c => c.id === selectedCourseId), [courses, selectedCourseId]);
+    const selectedStage = useMemo(() => selectedCourse?.stages.find(s => s.id === selectedStageId), [selectedCourse, selectedStageId]);
+    const selectedMission = useMemo(() => selectedStage?.missions?.[selectedDifficulty], [selectedStage, selectedDifficulty]);
+
+    const handleCourseClick = (courseId) => {
+        setSelectedCourseId(courseId);
+        setCurrentView('map');
+    };
+
+    const handleStageClick = (stageId) => {
+        setSelectedStageId(stageId);
+    };
+
+    const handleMissionClick = (difficulty) => {
+        if (!selectedStageId) return;
+        setSelectedDifficulty(difficulty);
+        setCurrentView('mission');
+    };
+
+    const handleBackToMap = () => {
+        setCurrentView('map');
+        setSelectedDifficulty(null);
+    };
+
+    const handleBackToList = () => {
+        setCurrentView('list');
+        setSelectedCourseId(null);
+        setSelectedStageId(null);
+    };
+
+    // --- Mission Logic ---
+    const { completeMission, isMissionCompleted, addSubmission } = useProgressStore();
+    const [showCelebration, setShowCelebration] = useState(false);
+
+    const handleMissionComplete = () => {
+        const alreadyDone = isMissionCompleted(user?.studentId, selectedCourseId, selectedStageId, selectedDifficulty);
+        if (!alreadyDone) {
+            completeMission(user?.studentId, selectedCourseId, selectedStageId, selectedDifficulty);
+            setShowCelebration(true);
+        }
+    };
+
+    const handlePracticeSubmit = (file) => {
+        addSubmission({
+            studentId: user?.studentId,
+            studentName: user?.name,
+            courseId: selectedCourseId,
+            stageId: selectedStageId,
+            missionId: selectedMission.id,
+            difficulty: selectedDifficulty,
+            fileName: file.name,
+            fileSize: file.size,
+        });
+        handleMissionComplete();
+    };
+
+    // --- Sub-components for Mission Views (ported from MissionPage) ---
+    const CelebrationModal = ({ isOpen, onClose }) => (
+        <Modal isOpen={isOpen} onClose={onClose} placement="center" backdrop="blur">
+            <ModalContent>
+                <ModalBody className="py-10 text-center space-y-4">
+                    <div className="text-6xl animate-bounce inline-block">⭐</div>
+                    <h2 className="text-2xl font-bold text-slate-900">Mission Star Earned!</h2>
+                    <p className="text-slate-500">You have successfully completed the mission.</p>
+                    <div className="flex gap-2 justify-center text-3xl">
+                        {['🎉', '✨', '🏆'].map((e, i) => (
+                            <span key={i} className="animate-pulse">{e}</span>
+                        ))}
+                    </div>
+                    <Button className="font-semibold text-white bg-primary" onPress={onClose}>Continue</Button>
+                </ModalBody>
+            </ModalContent>
+        </Modal>
+    );
+
+    const VideoView = ({ mission, onComplete }) => {
+        const [watched, setWatched] = useState(false);
+        const [quizStarted, setQuizStarted] = useState(false);
+        const [currentQ, setCurrentQ] = useState(0);
+        const [answers, setAnswers] = useState({});
+        const [showResult, setShowResult] = useState(false);
+        const questions = mission.quizQuestions || [];
+
+        if (!quizStarted) {
+            return (
+                <div className="space-y-6">
+                    <div className="aspect-video rounded-xl overflow-hidden bg-slate-900 border border-slate-200 shadow-xl">
+                        <iframe src={mission.videoUrl} className="w-full h-full" allowFullScreen />
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200">
+                        <label className="flex items-center gap-2 cursor-pointer text-slate-600">
+                            <input type="checkbox" checked={watched} onChange={e => setWatched(e.target.checked)} className="size-4" />
+                            I have watched the video
+                        </label>
+                        <Button color="primary" isDisabled={!watched} onPress={() => setQuizStarted(true)}>Take Quiz →</Button>
+                    </div>
+                </div>
+            );
+        }
+
+        const correctCount = questions.filter((q, i) => answers[i] === q.answer).length;
+        const passed = correctCount >= Math.ceil(questions.length * 0.66);
+
+        return (
+            <div className="space-y-6">
+                <Progress value={(Object.keys(answers).length / questions.length) * 100} color="primary" label="Quiz Progress" />
+                {!showResult ? (
+                    <div className="space-y-4">
+                        <Card className="shadow-lg border border-slate-200">
+                            <CardBody className="p-6 space-y-4">
+                                <p className="text-sm text-slate-500">Question {currentQ + 1} / {questions.length}</p>
+                                <h3 className="text-lg font-bold text-slate-800">{questions[currentQ]?.question}</h3>
+                                <div className="space-y-2">
+                                    {questions[currentQ]?.options.map((opt, i) => (
+                                        <button key={i} onClick={() => setAnswers(prev => ({ ...prev, [currentQ]: i }))}
+                                            className={`w-full text-left p-3 rounded-xl border transition-all ${answers[currentQ] === i ? 'bg-primary/10 border-primary text-primary font-bold' : 'bg-white border-slate-200 text-slate-600 hover:border-primary'}`}>
+                                            {i + 1}. {opt}
+                                        </button>
+                                    ))}
+                                </div>
+                            </CardBody>
+                        </Card>
+                        <div className="flex justify-between">
+                            <Button variant="flat" isDisabled={currentQ === 0} onPress={() => setCurrentQ(p => p - 1)}>Back</Button>
+                            {currentQ < questions.length - 1 ? (
+                                <Button color="primary" isDisabled={answers[currentQ] === undefined} onPress={() => setCurrentQ(p => p + 1)}>Next</Button>
+                            ) : (
+                                <Button color="success" className="text-white font-bold" isDisabled={Object.keys(answers).length < questions.length} onPress={() => setShowResult(true)}>Submit</Button>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <Card className="shadow-xl border border-slate-200 text-center p-8 space-y-4">
+                        <div className="text-5xl">{passed ? '🎉' : '😅'}</div>
+                        <h3 className="text-2xl font-bold text-slate-800">{passed ? 'Passed!' : 'Try Again'}</h3>
+                        <p className="text-slate-500">{correctCount} / {questions.length} correct</p>
+                        {passed ? <Button color="success" className="text-white font-bold" onPress={onComplete}>Claim Star</Button> :
+                            <Button color="primary" onPress={() => { setShowResult(false); setAnswers({}); setCurrentQ(0); }}>Restart Quiz</Button>}
+                    </Card>
+                )}
+            </div>
+        );
+    };
+
+    const TutorialView = ({ mission, onComplete }) => {
+        const [checked, setChecked] = useState(false);
+        const hasHtml = !!mission.htmlContent;
+        if (hasHtml) {
+            return (
+                <div className="space-y-6">
+                    <Card className="shadow-2xl border border-slate-200 overflow-hidden">
+                        <div className="bg-slate-100 p-2 flex items-center gap-2 border-b border-slate-200">
+                            <div className="flex gap-1">
+                                <div className="size-2 rounded-full bg-red-400"></div>
+                                <div className="size-2 rounded-full bg-yellow-400"></div>
+                                <div className="size-2 rounded-full bg-green-400"></div>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">tutorial_environment.html</span>
+                        </div>
+                        <iframe srcDoc={mission.htmlContent} title="Tutorial" className="w-full h-[70vh]" sandbox="allow-scripts allow-forms allow-modals allow-popups" />
+                    </Card>
+                    <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200 shadow-lg">
+                        <label className="flex items-center gap-3 cursor-pointer text-slate-700 font-semibold">
+                            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} className="size-5 accent-primary" />
+                            I have completed this tutorial mission
+                        </label>
+                        <Button color="success" className="text-white font-bold" isDisabled={!checked} onPress={onComplete}>Complete Mission →</Button>
+                    </div>
+                </div>
+            );
+        }
+        return <div className="p-8 text-center text-slate-500">Traditional step-by-step tutorials are no longer supported. Please upload an HTML file in Admin.</div>;
+    };
+
+    const PracticeView = ({ mission, onSubmit }) => {
+        const [file, setFile] = useState(null);
+        const [submitted, setSubmitted] = useState(false);
+        if (submitted) {
+            return (
+                <Card className="text-center p-12 space-y-4 shadow-xl border border-slate-200">
+                    <div className="text-7xl">📤</div>
+                    <h3 className="text-2xl font-bold text-slate-800">Assignment Uploaded!</h3>
+                    <p className="text-slate-500">Your teacher will review and approve your submission shortly.</p>
+                </Card>
+            );
+        }
+        return (
+            <div className="space-y-6">
+                <Card className="p-6 shadow-lg border border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-800 mb-2">📋 Instructions</h3>
+                    <div className="p-4 bg-slate-50 rounded-xl text-slate-600 whitespace-pre-wrap">{mission.taskDescription}</div>
+                </Card>
+                <Card className="p-6 shadow-lg border border-slate-200 text-center space-y-4">
+                    <label className="flex flex-col items-center justify-center p-10 border-2 border-dashed border-slate-300 rounded-2xl hover:border-primary cursor-pointer transition-colors bg-slate-50/50">
+                        <Upload size={40} className="text-slate-400 mb-2" />
+                        <span className="text-slate-600 font-medium">{file ? file.name : 'Click to select project file'}</span>
+                        <input type="file" className="hidden" onChange={e => setFile(e.target.files?.[0])} />
+                    </label>
+                    <Button color="primary" fullWidth className="h-12 text-lg font-bold" isDisabled={!file} onPress={() => { onSubmit(file); setSubmitted(true); }}>Submit Assignment</Button>
+                </Card>
+            </div>
+        );
+    };
+
     return (
         <div className="flex h-screen overflow-hidden bg-background-light text-dark-text font-display transition-colors duration-300">
             {/* Sidebar Navigation */}
@@ -56,20 +280,20 @@ export default function StudentDashboardPage() {
 
                 <nav className="flex-1 flex flex-col gap-2 p-4">
                     <button
-                        onClick={() => setActiveTab('dashboard')}
+                        onClick={() => navigate('/dashboard?tab=dashboard')}
                         className={`flex items-center gap-4 px-4 py-3 rounded-xl font-medium transition-all group w-full text-left ${activeTab === 'dashboard'
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
                             }`}
                     >
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">dashboard</span>
                         <span className="hidden lg:block">Dashboard</span>
                     </button>
                     <button
-                        onClick={() => setActiveTab('myClass')}
+                        onClick={() => navigate('/dashboard?tab=myClass')}
                         className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-all group w-full text-left ${activeTab === 'myClass'
-                                ? 'bg-primary/10 text-primary font-medium'
-                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
                             }`}
                     >
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">menu_book</span>
@@ -133,271 +357,396 @@ export default function StudentDashboardPage() {
                 <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-20 scroll-smooth">
                     {activeTab === 'dashboard' ? (
                         <>
-                    {/* Welcome Section */}
-                    <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                        <div className="xl:col-span-2 bg-white rounded-lg p-6 md:p-8 relative overflow-hidden shadow-card border border-accent-purple/30">
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
-                            <div className="absolute bottom-0 left-0 w-48 h-48 bg-accent-pink/10 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
+                            {/* Welcome Section */}
+                            <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                                <div className="xl:col-span-2 bg-white rounded-lg p-6 md:p-8 relative overflow-hidden shadow-card border border-accent-purple/30">
+                                    <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                                    <div className="absolute bottom-0 left-0 w-48 h-48 bg-accent-pink/10 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none"></div>
 
-                            <div className="relative z-10">
-                                <h1 className="text-2xl md:text-3xl font-bold mb-2">Welcome back, {user?.name || 'Student'}! 👋</h1>
-                                <p className="text-slate-500 mb-8">You are <span className="text-primary font-bold">{(nextLevelXP - xp).toLocaleString()} XP</span> away from reaching Level {level + 1}.</p>
+                                    <div className="relative z-10">
+                                        <h1 className="text-2xl md:text-3xl font-bold mb-2">Welcome back, {user?.name || 'Student'}! 👋</h1>
+                                        <p className="text-slate-500 mb-8">You are <span className="text-primary font-bold">{(nextLevelXP - xp).toLocaleString()} XP</span> away from reaching Level {level + 1}.</p>
 
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex justify-between items-end mb-1">
-                                        <span className="text-sm font-semibold uppercase tracking-wider text-slate-500">Level {level} Progress</span>
-                                        <span className="text-sm font-bold text-primary">{xp.toLocaleString()} / {nextLevelXP.toLocaleString()} XP</span>
-                                    </div>
-                                    <div className="h-4 w-full bg-slate-100 rounded-full overflow-visible shadow-inner">
-                                        <div className="h-full bg-primary rounded-full relative xp-bar-glow transition-all duration-1000 ease-out" style={{ width: `${progressPercentage}%` }}>
-                                            <div className="absolute top-0 right-0 bottom-0 w-full bg-gradient-to-l from-white/30 to-transparent"></div>
-                                            <div className="absolute -right-1.5 -top-1.5 w-7 h-7 bg-secondary/30 rounded-full blur-sm"></div>
-                                            <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_#00f5d4]"></div>
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-end mb-1">
+                                                <span className="text-sm font-semibold uppercase tracking-wider text-slate-500">Level {level} Progress</span>
+                                                <span className="text-sm font-bold text-primary">{xp.toLocaleString()} / {nextLevelXP.toLocaleString()} XP</span>
+                                            </div>
+                                            <div className="h-4 w-full bg-slate-100 rounded-full overflow-visible shadow-inner">
+                                                <div className="h-full bg-primary rounded-full relative xp-bar-glow transition-all duration-1000 ease-out" style={{ width: `${progressPercentage}%` }}>
+                                                    <div className="absolute top-0 right-0 bottom-0 w-full bg-gradient-to-l from-white/30 to-transparent"></div>
+                                                    <div className="absolute -right-1.5 -top-1.5 w-7 h-7 bg-secondary/30 rounded-full blur-sm"></div>
+                                                    <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_#00f5d4]"></div>
+                                                </div>
+                                            </div>
+                                            <p className="text-xs text-right mt-1 text-slate-400">Next reward: <span className="text-accent-purple font-medium">Master Sorcerer Badge</span></p>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-accent-pink/20 hover:border-accent-pink/50 transition-colors">
+                                                <span className="text-xs uppercase tracking-wide text-slate-500">Streak</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="material-symbols-outlined text-orange-500">local_fire_department</span>
+                                                    <span className="text-xl font-bold">{streak} Days</span>
+                                                </div>
+                                            </div>
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-accent-yellow/20 hover:border-accent-yellow/50 transition-colors">
+                                                <span className="text-xs uppercase tracking-wide text-slate-500">Total XP</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="material-symbols-outlined text-accent-yellow">star</span>
+                                                    <span className="text-xl font-bold">{(xp / 1000).toFixed(1)}k</span>
+                                                </div>
+                                            </div>
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-primary/20 hover:border-primary/50 transition-colors">
+                                                <span className="text-xs uppercase tracking-wide text-slate-500">Global Rank</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="material-symbols-outlined text-secondary">public</span>
+                                                    <span className="text-xl font-bold">#{globalRank}</span>
+                                                </div>
+                                            </div>
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-secondary/20 hover:border-secondary/50 transition-colors">
+                                                <span className="text-xs uppercase tracking-wide text-slate-500">Completed</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="material-symbols-outlined text-secondary">check_circle</span>
+                                                    <span className="text-xl font-bold">{completedCourses} Courses</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <p className="text-xs text-right mt-1 text-slate-400">Next reward: <span className="text-accent-purple font-medium">Master Sorcerer Badge</span></p>
                                 </div>
 
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
-                                    <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-accent-pink/20 hover:border-accent-pink/50 transition-colors">
-                                        <span className="text-xs uppercase tracking-wide text-slate-500">Streak</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-orange-500">local_fire_department</span>
-                                            <span className="text-xl font-bold">{streak} Days</span>
-                                        </div>
+                                {/* Daily Quests */}
+                                <div className="bg-white rounded-lg p-6 flex flex-col shadow-card border border-accent-pink/30">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="font-bold text-lg flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-accent-purple">assignment</span>
+                                            Daily Quests
+                                        </h2>
+                                        <span className="text-xs font-medium bg-accent-purple/10 text-accent-purple px-2 py-1 rounded-full border border-accent-purple/20">Resets in 4h</span>
                                     </div>
-                                    <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-accent-yellow/20 hover:border-accent-yellow/50 transition-colors">
-                                        <span className="text-xs uppercase tracking-wide text-slate-500">Total XP</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-accent-yellow">star</span>
-                                            <span className="text-xl font-bold">{(xp / 1000).toFixed(1)}k</span>
+                                    <div className="flex-1 flex flex-col gap-4">
+                                        <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 opacity-60 border border-slate-200 transition-all hover:opacity-80">
+                                            <div className="size-6 rounded-full bg-secondary flex items-center justify-center text-slate-900 shadow-[0_0_10px_#00f5d4]">
+                                                <span className="material-symbols-outlined text-sm font-bold">check</span>
+                                            </div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium line-through decoration-slate-400">Login 3 days in a row</p>
+                                                <p className="text-xs text-secondary">+50 XP</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-primary/20 hover:border-primary/50 transition-colors">
-                                        <span className="text-xs uppercase tracking-wide text-slate-500">Global Rank</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-secondary">public</span>
-                                            <span className="text-xl font-bold">#{globalRank}</span>
+                                        <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 border-l-4 border-primary relative overflow-hidden shadow-sm hover:translate-x-1 transition-transform">
+                                            <div className="size-6 rounded-full border-2 border-slate-300"></div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium">Score 80% on Python Basics</p>
+                                                <div className="flex justify-between items-center mt-1">
+                                                    <div className="h-1.5 w-24 bg-slate-200 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-primary w-0 rounded-full"></div>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400">0/1</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded border border-primary/20">+100 XP</span>
                                         </div>
-                                    </div>
-                                    <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-secondary/20 hover:border-secondary/50 transition-colors">
-                                        <span className="text-xs uppercase tracking-wide text-slate-500">Completed</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="material-symbols-outlined text-secondary">check_circle</span>
-                                            <span className="text-xl font-bold">{completedCourses} Courses</span>
+                                        <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 border border-transparent hover:border-primary/30 transition-all hover:shadow-lg hover:shadow-primary/5">
+                                            <div className="size-6 rounded-full border-2 border-slate-300"></div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium">Complete 2 Modules</p>
+                                                <div className="flex justify-between items-center mt-1">
+                                                    <div className="h-1.5 w-24 bg-slate-200 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-primary w-1/2 rounded-full shadow-[0_0_5px_#00bbf9]"></div>
+                                                    </div>
+                                                    <p className="text-xs text-slate-400">1/2</p>
+                                                </div>
+                                            </div>
+                                            <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded border border-primary/20">+75 XP</span>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
+                            </section>
 
-                        {/* Daily Quests */}
-                        <div className="bg-white rounded-lg p-6 flex flex-col shadow-card border border-accent-pink/30">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="font-bold text-lg flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-accent-purple">assignment</span>
-                                    Daily Quests
-                                </h2>
-                                <span className="text-xs font-medium bg-accent-purple/10 text-accent-purple px-2 py-1 rounded-full border border-accent-purple/20">Resets in 4h</span>
-                            </div>
-                            <div className="flex-1 flex flex-col gap-4">
-                                <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 opacity-60 border border-slate-200 transition-all hover:opacity-80">
-                                    <div className="size-6 rounded-full bg-secondary flex items-center justify-center text-slate-900 shadow-[0_0_10px_#00f5d4]">
-                                        <span className="material-symbols-outlined text-sm font-bold">check</span>
+                            {/* Continue Learning & Leaderboard */}
+                            <section className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                                <div className="lg:col-span-3">
+                                    <div className="flex justify-between items-center mb-4 px-2">
+                                        <h2 className="text-xl font-bold flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-primary">play_circle</span>
+                                            Continue Learning
+                                        </h2>
+                                        <button onClick={() => navigate('/courses')} className="text-sm font-medium text-primary hover:text-secondary hover:underline transition-colors">View All</button>
                                     </div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium line-through decoration-slate-400">Login 3 days in a row</p>
-                                        <p className="text-xs text-secondary">+50 XP</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 border-l-4 border-primary relative overflow-hidden shadow-sm hover:translate-x-1 transition-transform">
-                                    <div className="size-6 rounded-full border-2 border-slate-300"></div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium">Score 80% on Python Basics</p>
-                                        <div className="flex justify-between items-center mt-1">
-                                            <div className="h-1.5 w-24 bg-slate-200 rounded-full overflow-hidden">
-                                                <div className="h-full bg-primary w-0 rounded-full"></div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div onClick={() => navigate('/courses')} className="bg-white rounded-lg p-4 flex gap-4 hover:shadow-lg hover:shadow-primary/5 hover:scale-[1.01] transition-all duration-300 border border-accent-purple/20 group cursor-pointer">
+                                            <div className="w-24 h-24 md:w-32 md:h-32 rounded-lg bg-cover bg-center shrink-0 relative overflow-hidden" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Data+Science&background=random')" }}>
+                                                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors"></div>
+                                                <div className="absolute bottom-2 left-2 p-1 rounded-full bg-black/50 backdrop-blur-sm border border-white/20">
+                                                    <span className="material-symbols-outlined text-white text-[16px]">play_arrow</span>
+                                                </div>
                                             </div>
-                                            <p className="text-xs text-slate-400">0/1</p>
+                                            <div className="flex flex-col justify-between flex-1 py-1">
+                                                <div>
+                                                    <div className="flex justify-between items-start">
+                                                        <span className="text-xs font-bold text-accent-purple bg-accent-purple/10 border border-accent-purple/20 px-2 py-0.5 rounded-full mb-2 inline-block">Data Science</span>
+                                                        <span className="material-symbols-outlined text-slate-400 hover:text-primary text-[20px]">more_vert</span>
+                                                    </div>
+                                                    <h3 className="font-bold text-lg leading-tight mb-1 group-hover:text-primary transition-colors">Advanced Data Analytics</h3>
+                                                    <p className="text-xs text-slate-500">Last played 2h ago</p>
+                                                </div>
+                                                <div className="mt-2">
+                                                    <div className="flex justify-between text-xs mb-1">
+                                                        <span className="font-medium text-slate-300">Progress</span>
+                                                        <span className="font-bold text-primary">65%</span>
+                                                    </div>
+                                                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-primary rounded-full shadow-[0_0_8px_#00bbf9]" style={{ width: '65%' }}></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div onClick={() => navigate('/courses')} className="bg-white rounded-lg p-4 flex gap-4 hover:shadow-lg hover:shadow-accent-pink/5 hover:scale-[1.01] transition-all duration-300 border border-accent-pink/20 group cursor-pointer">
+                                            <div className="w-24 h-24 md:w-32 md:h-32 rounded-lg bg-cover bg-center shrink-0 relative overflow-hidden" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=UX+Design&background=random')" }}>
+                                                <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors"></div>
+                                            </div>
+                                            <div className="flex flex-col justify-between flex-1 py-1">
+                                                <div>
+                                                    <div className="flex justify-between items-start">
+                                                        <span className="text-xs font-bold text-accent-pink bg-accent-pink/10 border border-accent-pink/20 px-2 py-0.5 rounded-full mb-2 inline-block">Design</span>
+                                                        <span className="material-symbols-outlined text-slate-400 hover:text-primary text-[20px]">more_vert</span>
+                                                    </div>
+                                                    <h3 className="font-bold text-lg leading-tight mb-1 group-hover:text-accent-pink transition-colors">UX Design Fundamentals</h3>
+                                                    <p className="text-xs text-slate-500">Last played 1d ago</p>
+                                                </div>
+                                                <div className="mt-2">
+                                                    <div className="flex justify-between text-xs mb-1">
+                                                        <span className="font-medium text-slate-300">Progress</span>
+                                                        <span className="font-bold text-primary">12%</span>
+                                                    </div>
+                                                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                                        <div className="h-full bg-primary rounded-full shadow-[0_0_8px_#00bbf9]" style={{ width: '12%' }}></div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded border border-primary/20">+100 XP</span>
                                 </div>
-                                <div className="flex items-center gap-4 p-3 rounded-xl bg-slate-50 border border-transparent hover:border-primary/30 transition-all hover:shadow-lg hover:shadow-primary/5">
-                                    <div className="size-6 rounded-full border-2 border-slate-300"></div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-medium">Complete 2 Modules</p>
-                                        <div className="flex justify-between items-center mt-1">
-                                            <div className="h-1.5 w-24 bg-slate-200 rounded-full overflow-hidden">
-                                                <div className="h-full bg-primary w-1/2 rounded-full shadow-[0_0_5px_#00bbf9]"></div>
-                                            </div>
-                                            <p className="text-xs text-slate-400">1/2</p>
-                                        </div>
-                                    </div>
-                                    <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded border border-primary/20">+75 XP</span>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
 
-                    {/* Continue Learning & Leaderboard */}
-                    <section className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                        <div className="lg:col-span-3">
-                            <div className="flex justify-between items-center mb-4 px-2">
-                                <h2 className="text-xl font-bold flex items-center gap-2">
-                                    <span className="material-symbols-outlined text-primary">play_circle</span>
-                                    Continue Learning
-                                </h2>
-                                <button onClick={() => navigate('/courses')} className="text-sm font-medium text-primary hover:text-secondary hover:underline transition-colors">View All</button>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div onClick={() => navigate('/courses')} className="bg-white rounded-lg p-4 flex gap-4 hover:shadow-lg hover:shadow-primary/5 hover:scale-[1.01] transition-all duration-300 border border-accent-purple/20 group cursor-pointer">
-                                    <div className="w-24 h-24 md:w-32 md:h-32 rounded-lg bg-cover bg-center shrink-0 relative overflow-hidden" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Data+Science&background=random')" }}>
-                                        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors"></div>
-                                        <div className="absolute bottom-2 left-2 p-1 rounded-full bg-black/50 backdrop-blur-sm border border-white/20">
-                                            <span className="material-symbols-outlined text-white text-[16px]">play_arrow</span>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col justify-between flex-1 py-1">
-                                        <div>
-                                            <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-accent-purple bg-accent-purple/10 border border-accent-purple/20 px-2 py-0.5 rounded-full mb-2 inline-block">Data Science</span>
-                                                <span className="material-symbols-outlined text-slate-400 hover:text-primary text-[20px]">more_vert</span>
-                                            </div>
-                                            <h3 className="font-bold text-lg leading-tight mb-1 group-hover:text-primary transition-colors">Advanced Data Analytics</h3>
-                                            <p className="text-xs text-slate-500">Last played 2h ago</p>
-                                        </div>
-                                        <div className="mt-2">
-                                            <div className="flex justify-between text-xs mb-1">
-                                                <span className="font-medium text-slate-300">Progress</span>
-                                                <span className="font-bold text-primary">65%</span>
-                                            </div>
-                                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                <div className="h-full bg-primary rounded-full shadow-[0_0_8px_#00bbf9]" style={{ width: '65%' }}></div>
+                                {/* Top Learners */}
+                                <div className="lg:col-span-1 bg-white rounded-lg p-6 flex flex-col shadow-card border border-accent-yellow/30">
+                                    <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-accent-yellow">trophy</span>
+                                        Top Learners
+                                    </h2>
+                                    <div className="flex flex-col gap-1">
+                                        <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group">
+                                            <span className="font-bold text-accent-yellow w-4 text-center drop-shadow-[0_0_5px_rgba(254,228,64,0.8)]">1</span>
+                                            <div className="size-8 rounded-full bg-cover bg-center ring-2 ring-accent-yellow/50 group-hover:scale-110 transition-transform" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Sarah+J&background=random')" }}></div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-bold">Sarah J.</p>
+                                                <p className="text-xs text-slate-500">14,200 XP</p>
                                             </div>
                                         </div>
-                                    </div>
-                                </div>
-                                <div onClick={() => navigate('/courses')} className="bg-white rounded-lg p-4 flex gap-4 hover:shadow-lg hover:shadow-accent-pink/5 hover:scale-[1.01] transition-all duration-300 border border-accent-pink/20 group cursor-pointer">
-                                    <div className="w-24 h-24 md:w-32 md:h-32 rounded-lg bg-cover bg-center shrink-0 relative overflow-hidden" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=UX+Design&background=random')" }}>
-                                        <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors"></div>
-                                    </div>
-                                    <div className="flex flex-col justify-between flex-1 py-1">
-                                        <div>
-                                            <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-accent-pink bg-accent-pink/10 border border-accent-pink/20 px-2 py-0.5 rounded-full mb-2 inline-block">Design</span>
-                                                <span className="material-symbols-outlined text-slate-400 hover:text-primary text-[20px]">more_vert</span>
+                                        <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group">
+                                            <span className="font-bold text-slate-400 w-4 text-center">2</span>
+                                            <div className="size-8 rounded-full bg-cover bg-center group-hover:scale-110 transition-transform" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Mike+T&background=random')" }}></div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-bold">Mike T.</p>
+                                                <p className="text-xs text-slate-500">13,850 XP</p>
                                             </div>
-                                            <h3 className="font-bold text-lg leading-tight mb-1 group-hover:text-accent-pink transition-colors">UX Design Fundamentals</h3>
-                                            <p className="text-xs text-slate-500">Last played 1d ago</p>
                                         </div>
-                                        <div className="mt-2">
-                                            <div className="flex justify-between text-xs mb-1">
-                                                <span className="font-medium text-slate-300">Progress</span>
-                                                <span className="font-bold text-primary">12%</span>
+                                        <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group">
+                                            <span className="font-bold text-orange-700 w-4 text-center">3</span>
+                                            <div className="size-8 rounded-full bg-cover bg-center group-hover:scale-110 transition-transform" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=David+L&background=random')" }}></div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-bold">David L.</p>
+                                                <p className="text-xs text-slate-500">13,100 XP</p>
                                             </div>
-                                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                <div className="h-full bg-primary rounded-full shadow-[0_0_8px_#00bbf9]" style={{ width: '12%' }}></div>
+                                        </div>
+                                        <div className="h-px bg-slate-200 my-2"></div>
+                                        <div className="flex items-center gap-3 p-2 rounded-xl bg-primary/5 border border-primary/20">
+                                            <span className="font-bold text-primary w-4 text-center">42</span>
+                                            <div className="size-8 rounded-full bg-cover bg-center ring-2 ring-primary shadow-[0_0_10px_#00bbf9]" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=" + (user?.name || 'You') + "&background=random')" }}></div>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-bold">You</p>
+                                                <p className="text-xs text-primary">{xp.toLocaleString()} XP</p>
                                             </div>
+                                            <span className="material-symbols-outlined text-primary text-sm animate-bounce">arrow_upward</span>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        {/* Top Learners */}
-                        <div className="lg:col-span-1 bg-white rounded-lg p-6 flex flex-col shadow-card border border-accent-yellow/30">
-                            <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-                                <span className="material-symbols-outlined text-accent-yellow">trophy</span>
-                                Top Learners
-                            </h2>
-                            <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group">
-                                    <span className="font-bold text-accent-yellow w-4 text-center drop-shadow-[0_0_5px_rgba(254,228,64,0.8)]">1</span>
-                                    <div className="size-8 rounded-full bg-cover bg-center ring-2 ring-accent-yellow/50 group-hover:scale-110 transition-transform" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Sarah+J&background=random')" }}></div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-bold">Sarah J.</p>
-                                        <p className="text-xs text-slate-500">14,200 XP</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group">
-                                    <span className="font-bold text-slate-400 w-4 text-center">2</span>
-                                    <div className="size-8 rounded-full bg-cover bg-center group-hover:scale-110 transition-transform" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Mike+T&background=random')" }}></div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-bold">Mike T.</p>
-                                        <p className="text-xs text-slate-500">13,850 XP</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer group">
-                                    <span className="font-bold text-orange-700 w-4 text-center">3</span>
-                                    <div className="size-8 rounded-full bg-cover bg-center group-hover:scale-110 transition-transform" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=David+L&background=random')" }}></div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-bold">David L.</p>
-                                        <p className="text-xs text-slate-500">13,100 XP</p>
-                                    </div>
-                                </div>
-                                <div className="h-px bg-slate-200 my-2"></div>
-                                <div className="flex items-center gap-3 p-2 rounded-xl bg-primary/5 border border-primary/20">
-                                    <span className="font-bold text-primary w-4 text-center">42</span>
-                                    <div className="size-8 rounded-full bg-cover bg-center ring-2 ring-primary shadow-[0_0_10px_#00bbf9]" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=" + (user?.name || 'You') + "&background=random')" }}></div>
-                                    <div className="flex-1">
-                                        <p className="text-sm font-bold">You</p>
-                                        <p className="text-xs text-primary">{xp.toLocaleString()} XP</p>
-                                    </div>
-                                    <span className="material-symbols-outlined text-primary text-sm animate-bounce">arrow_upward</span>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
+                            </section>
                         </>
                     ) : (
                         <section className="space-y-6">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-2xl font-bold">My Class</h2>
-                                    <p className="text-slate-500 text-sm mt-1">Shows classes created in Admin &gt; Class tab.</p>
-                                </div>
-                                <button onClick={() => setActiveTab('dashboard')} className="text-sm font-medium text-primary hover:text-secondary hover:underline transition-colors">Back to Dashboard</button>
-                            </div>
+                            {currentView === 'list' && (
+                                <>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h2 className="text-2xl font-bold">My Class</h2>
+                                            <p className="text-slate-500 text-sm mt-1">Select a class to continue your quest.</p>
+                                        </div>
+                                    </div>
 
-                            {myClasses.length > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                    {myClasses.map((course) => {
-                                        const completion = getCourseCompletion(course.id);
-                                        return (
-                                            <button
-                                                key={course.id}
-                                                onClick={() => navigate(`/course/${course.id}`)}
-                                                className="text-left bg-white rounded-xl p-5 border border-accent-purple/20 shadow-card hover:shadow-lg hover:scale-[1.01] transition-all group"
-                                            >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div className="flex items-center gap-3 min-w-0">
-                                                        <span className="text-3xl">{course.icon || '📘'}</span>
-                                                        <div className="min-w-0">
-                                                            <h3 className="font-bold text-lg leading-tight truncate group-hover:text-primary transition-colors">{course.title}</h3>
-                                                            <p className="text-sm text-slate-500 line-clamp-2">{course.description || 'No class description'}</p>
+                                    {myClasses.length > 0 ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                            {myClasses.map((course) => {
+                                                const completion = getCourseCompletion(course.id);
+                                                return (
+                                                    <button
+                                                        key={course.id}
+                                                        onClick={() => handleCourseClick(course.id)}
+                                                        className="text-left bg-white rounded-xl p-5 border border-accent-purple/20 shadow-card hover:shadow-lg hover:scale-[1.01] transition-all group"
+                                                    >
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <span className="text-3xl">{course.icon || '📘'}</span>
+                                                                <div className="min-w-0">
+                                                                    <h3 className="font-bold text-lg leading-tight truncate group-hover:text-primary transition-colors">{course.title}</h3>
+                                                                    <p className="text-sm text-slate-500 line-clamp-2">{course.description || 'No class description'}</p>
+                                                                </div>
+                                                            </div>
+                                                            <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">arrow_forward</span>
                                                         </div>
-                                                    </div>
-                                                    <span className="material-symbols-outlined text-slate-400 group-hover:text-primary transition-colors">arrow_forward</span>
-                                                </div>
 
-                                                <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-                                                    <span>{course.stages.length} Stages</span>
-                                                    <span className="font-semibold text-primary">{completion}%</span>
+                                                        <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+                                                            <span>{course.stages.length} Stages</span>
+                                                            <span className="font-semibold text-primary">{completion}%</span>
+                                                        </div>
+                                                        <div className="mt-1 h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                                            <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${completion}%` }} />
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white rounded-xl border border-accent-purple/20 p-8 text-center text-slate-500">
+                                            No classes available yet. Add classes in Admin page.
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {currentView === 'map' && selectedCourse && (
+                                <div className="space-y-8">
+                                    <div className="flex items-center gap-4">
+                                        <Button isIconOnly variant="flat" onPress={handleBackToList}>
+                                            <ChevronLeft size={20} />
+                                        </Button>
+                                        <div>
+                                            <h2 className="text-2xl font-bold">{selectedCourse.title} Map</h2>
+                                            <p className="text-slate-500 text-sm">Clear stages to earn points and level up!</p>
+                                        </div>
+                                    </div>
+
+                                    {/* Stages Layout */}
+                                    <div className="flex flex-col gap-12 relative py-8">
+                                        {/* Connector Line */}
+                                        <div className="absolute left-[50%] top-0 bottom-0 w-1 bg-slate-200/50 -translate-x-1/2 -z-0"></div>
+
+                                        {selectedCourse.stages.map((stage, idx) => {
+                                            const progress = getStudentProgress(user?.studentId, selectedCourse.id)?.[stage.id];
+                                            const isDone = progress?.easy && progress?.normal && progress?.hard;
+                                            return (
+                                                <div key={stage.id} className={`flex items-center gap-8 z-10 ${idx % 2 === 0 ? 'flex-row' : 'flex-row-reverse'}`}>
+                                                    {/* Side Panel (Description) */}
+                                                    <div className="hidden md:block flex-1 text-right">
+                                                        {idx % 2 === 0 ? (
+                                                            <div className="pr-4">
+                                                                <h4 className="font-bold text-slate-800">{stage.title}</h4>
+                                                                <p className="text-xs text-slate-400 line-clamp-2">{stage.description}</p>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+
+                                                    {/* Center Node (Stage Indicator) */}
+                                                    <div className="flex flex-col items-center gap-2">
+                                                        <div
+                                                            onClick={() => handleStageClick(stage.id)}
+                                                            className={`size-16 rounded-full flex items-center justify-center cursor-pointer transition-all border-4 ${selectedStageId === stage.id ? 'scale-110 shadow-2xl' : 'scale-100'} ${isDone ? 'bg-green-500 border-green-200 text-white' : 'bg-white border-slate-200'}`}
+                                                        >
+                                                            {isDone ? <Check size={32} strokeWidth={3} /> : <span className="text-xl font-black text-slate-300">{idx + 1}</span>}
+                                                        </div>
+                                                        <span className="md:hidden font-bold text-xs text-slate-500">{stage.title}</span>
+                                                    </div>
+
+                                                    {/* Side Panel (Missions) */}
+                                                    <div className="flex-1">
+                                                        {idx % 2 !== 0 ? (
+                                                            <div className="pl-4 hidden md:block mb-4">
+                                                                <h4 className="font-bold text-slate-800 text-left">{stage.title}</h4>
+                                                                <p className="text-xs text-slate-400 line-clamp-2 text-left">{stage.description}</p>
+                                                            </div>
+                                                        ) : null}
+
+                                                        {selectedStageId === stage.id && (
+                                                            <div className={`p-4 bg-white rounded-2xl border border-primary/20 shadow-xl animate-in fade-in slide-in-from-top-4 duration-300 max-w-sm ${idx % 2 !== 0 ? 'ml-auto' : ''}`}>
+                                                                <div className="grid grid-cols-1 gap-3">
+                                                                    {[
+                                                                        { diff: 'easy', label: 'Video & Quiz', icon: <Play size={16} /> },
+                                                                        { diff: 'normal', label: 'HTML Tutorial', icon: <BookOpen size={16} /> },
+                                                                        { diff: 'hard', label: 'Final Practice', icon: <Upload size={16} /> }
+                                                                    ].map(m => {
+                                                                        const missionDone = progress?.[m.diff];
+                                                                        return (
+                                                                            <button
+                                                                                key={m.diff}
+                                                                                onClick={() => handleMissionClick(m.diff)}
+                                                                                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${missionDone ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-100 hover:border-primary'}`}
+                                                                            >
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <div className={`size-8 rounded-lg flex items-center justify-center ${missionDone ? 'bg-green-500 text-white' : 'bg-primary/20 text-primary'}`}>
+                                                                                        {m.icon}
+                                                                                    </div>
+                                                                                    <div className="text-left">
+                                                                                        <p className={`text-xs font-bold ${missionDone ? 'text-green-700' : 'text-slate-800'}`}>{m.label}</p>
+                                                                                        <p className="text-[10px] text-slate-400 capitalize">{m.diff}</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                {missionDone && <Star size={14} className="text-amber-500 fill-amber-500" />}
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div className="mt-1 h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${completion}%` }} />
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
+                                            );
+                                        })}
+                                    </div>
                                 </div>
-                            ) : (
-                                <div className="bg-white rounded-xl border border-accent-purple/20 p-8 text-center text-slate-500">
-                                    No classes available yet. Add classes in Admin page.
+                            )}
+
+                            {currentView === 'mission' && selectedMission && (
+                                <div className="space-y-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center gap-4">
+                                            <Button isIconOnly variant="flat" onPress={handleBackToMap}>
+                                                <ChevronLeft size={20} />
+                                            </Button>
+                                            <div>
+                                                <h2 className="text-2xl font-bold">{selectedMission.title}</h2>
+                                                <p className="text-slate-500 text-sm">
+                                                    {selectedDifficulty === 'easy' ? 'Watch and solve' : selectedDifficulty === 'normal' ? 'Interactive Guide' : 'Demonstrate your skills'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {isMissionCompleted(user?.studentId, selectedCourseId, selectedStageId, selectedDifficulty) && (
+                                            <div className="flex items-center gap-2 text-amber-500 font-bold bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                                                <Star className="fill-amber-500" size={18} />
+                                                Completed
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {selectedDifficulty === 'easy' && <VideoView mission={selectedMission} onComplete={handleMissionComplete} />}
+                                    {selectedDifficulty === 'normal' && <TutorialView mission={selectedMission} onComplete={handleMissionComplete} />}
+                                    {selectedDifficulty === 'hard' && <PracticeView mission={selectedMission} onSubmit={handlePracticeSubmit} />}
+
+                                    <CelebrationModal isOpen={showCelebration} onClose={() => { setShowCelebration(false); handleBackToMap(); }} />
                                 </div>
                             )}
                         </section>
+
                     )}
                 </div>
             </main>
