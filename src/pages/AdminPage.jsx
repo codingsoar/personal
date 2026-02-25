@@ -9,231 +9,180 @@ import { useMarketplaceStore } from '../stores/useMarketplaceStore';
 import DashboardCalendar from '../components/DashboardCalendar';
 // --- Sub-components for Views ---
 
-const DashboardOverview = ({ totalLearners, totalClasses, pointsIssued, courseCompletion }) => {
+const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, courseCompletion, courses, registeredStudents, progress, purchases }) => {
+    // Compute per-course completion
+    const courseStats = courses.map(course => {
+        let totalDone = 0;
+        let totalPossible = 0;
+        registeredStudents.forEach(s => {
+            course.stages.forEach(stage => {
+                const sp = progress?.[s.studentId]?.[course.id]?.[stage.id];
+                ['easy', 'normal', 'hard'].forEach(d => {
+                    totalPossible++;
+                    if (sp?.[d]) totalDone++;
+                });
+            });
+        });
+        const pct = totalPossible > 0 ? Math.round((totalDone / totalPossible) * 100) : 0;
+        return { ...course, pct, studentCount: registeredStudents.length };
+    }).sort((a, b) => b.pct - a.pct);
+
+    const colorSets = [
+        { bg: 'bg-admin-pink/20', text: 'text-admin-pink' },
+        { bg: 'bg-admin-secondary/20', text: 'text-admin-secondary' },
+        { bg: 'bg-admin-yellow/20', text: 'text-admin-yellow' },
+        { bg: 'bg-admin-green/20', text: 'text-admin-green' },
+    ];
+
+    const recentPurchases = [...purchases].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
+
     return (
         <div className="max-w-7xl mx-auto space-y-8">
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {/* ... (Existing Cards Code) ... */}
                 {/* Card 1 */}
                 <div className="bg-admin-card-dark rounded-2xl p-6 border border-white/5 relative overflow-hidden group hover:border-admin-secondary/30 transition-all">
                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                         <span className="material-symbols-outlined text-6xl text-white">groups</span>
                     </div>
-                    <p className="text-gray-400 text-sm font-medium mb-1">Total Learners</p>
+                    <p className="text-gray-400 text-sm font-medium mb-1">전체 학생</p>
                     <div className="flex items-end gap-3">
-                        <h3 className="text-3xl font-bold text-white">{totalLearners}</h3>
-                        <div className="flex items-center text-admin-green text-xs font-bold bg-admin-green/10 px-2 py-1 rounded-full mb-1">
-                            <span className="material-symbols-outlined text-[14px] mr-0.5">trending_up</span>
-                            12%
-                        </div>
+                        <h3 className="text-3xl font-bold text-white">{totalLearners}명</h3>
                     </div>
                     <div className="mt-4 w-full bg-gray-700/30 rounded-full h-1.5">
-                        <div className="bg-gradient-to-r from-admin-secondary to-purple-500 h-1.5 rounded-full" style={{ width: '75%' }}></div>
+                        <div className="bg-gradient-to-r from-admin-secondary to-purple-500 h-1.5 rounded-full" style={{ width: `${Math.min(totalLearners * 10, 100)}%` }}></div>
                     </div>
                 </div>
-                {/* ... (Other cards - compacted for brevity in this rewrite, but I will include them full in the actual file) ... */}
                 {/* Card 2 */}
-                <div className="bg-admin-card-dark rounded-2xl p-6 border border-white/5 relative overflow-hidden group hover:border-admin-green/30 transition-all">
+                <div className="bg-admin-card-dark rounded-2xl p-6 border border-white/5 relative overflow-hidden group hover:border-admin-pink/30 transition-all">
                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <span className="material-symbols-outlined text-6xl text-admin-green">donut_large</span>
+                        <span className="material-symbols-outlined text-6xl text-admin-pink">school</span>
                     </div>
-                    <p className="text-gray-400 text-sm font-medium mb-1">Course Completion</p>
+                    <p className="text-gray-400 text-sm font-medium mb-1">전체 수업</p>
                     <div className="flex items-end gap-3">
-                        <h3 className="text-3xl font-bold text-white">{courseCompletion}</h3>
-                        <div className="flex items-center text-admin-green text-xs font-bold bg-admin-green/10 px-2 py-1 rounded-full mb-1">
-                            <span className="material-symbols-outlined text-[14px] mr-0.5">trending_up</span>
-                            5%
-                        </div>
+                        <h3 className="text-3xl font-bold text-white">{totalClasses}개</h3>
                     </div>
-                    <div className="mt-4 w-full bg-gray-700/30 rounded-full h-1.5">
-                        <div className="bg-admin-green h-1.5 rounded-full" style={{ width: '78%' }}></div>
+                    <div className="mt-4 flex gap-1">
+                        {courses.map((_, i) => (
+                            <div key={i} className="h-1.5 flex-1 bg-admin-pink rounded-full"></div>
+                        ))}
+                        {courses.length === 0 && <div className="h-1.5 flex-1 bg-gray-700/30 rounded-full"></div>}
                     </div>
                 </div>
                 {/* Card 3 */}
-                <div className="bg-admin-card-dark rounded-2xl p-6 border border-white/5 relative overflow-hidden group hover:border-admin-pink/30 transition-all">
+                <div className="bg-admin-card-dark rounded-2xl p-6 border border-white/5 relative overflow-hidden group hover:border-admin-yellow/30 transition-all">
                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <span className="material-symbols-outlined text-6xl text-admin-pink">swords</span>
+                        <span className="material-symbols-outlined text-6xl text-admin-yellow">star</span>
                     </div>
-                    <p className="text-gray-400 text-sm font-medium mb-1">Active Classes</p>
+                    <p className="text-gray-400 text-sm font-medium mb-1">발급된 별</p>
                     <div className="flex items-end gap-3">
-                        <h3 className="text-3xl font-bold text-white">{totalClasses}</h3>
-                        <div className="flex items-center text-admin-pink text-xs font-bold bg-admin-pink/10 px-2 py-1 rounded-full mb-1">
-                            <span className="material-symbols-outlined text-[14px] mr-0.5">priority_high</span>
-                            2 new
-                        </div>
+                        <h3 className="text-3xl font-bold text-white">{totalStarsIssued}개</h3>
                     </div>
-                    <div className="mt-4 flex gap-1">
-                        <div className="h-1.5 w-1/3 bg-admin-pink rounded-full"></div>
-                        <div className="h-1.5 w-1/3 bg-admin-pink/50 rounded-full"></div>
-                        <div className="h-1.5 w-1/3 bg-gray-700/30 rounded-full"></div>
+                    <div className="mt-4 w-full bg-gray-700/30 rounded-full h-1.5">
+                        <div className="bg-admin-yellow h-1.5 rounded-full" style={{ width: `${Math.min(totalStarsIssued * 2, 100)}%` }}></div>
                     </div>
                 </div>
                 {/* Card 4 */}
-                <div className="bg-admin-card-dark rounded-2xl p-6 border border-white/5 relative overflow-hidden group hover:border-admin-yellow/30 transition-all">
+                <div className="bg-admin-card-dark rounded-2xl p-6 border border-white/5 relative overflow-hidden group hover:border-admin-green/30 transition-all">
                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                        <span className="material-symbols-outlined text-6xl text-admin-yellow">database</span>
+                        <span className="material-symbols-outlined text-6xl text-admin-green">check_circle</span>
                     </div>
-                    <p className="text-gray-400 text-sm font-medium mb-1">Points Issued</p>
+                    <p className="text-gray-400 text-sm font-medium mb-1">전체 완료율</p>
                     <div className="flex items-end gap-3">
-                        <h3 className="text-3xl font-bold text-white">{pointsIssued}</h3>
-                        <div className="flex items-center text-admin-green text-xs font-bold bg-admin-green/10 px-2 py-1 rounded-full mb-1">
-                            <span className="material-symbols-outlined text-[14px] mr-0.5">trending_up</span>
-                            15%
-                        </div>
+                        <h3 className="text-3xl font-bold text-white">{courseCompletion}%</h3>
                     </div>
                     <div className="mt-4 w-full bg-gray-700/30 rounded-full h-1.5">
-                        <div className="bg-admin-yellow h-1.5 rounded-full" style={{ width: '92%' }}></div>
+                        <div className="bg-admin-green h-1.5 rounded-full" style={{ width: `${courseCompletion}%` }}></div>
                     </div>
                 </div>
             </div>
 
-            {/* Charts & Activity Row */}
+            {/* Calendar & Top Classes */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Main Chart Area */}
                 <div className="lg:col-span-2">
                     <DashboardCalendar />
                 </div>
-
-                {/* Top Gamification */}
                 <div className="bg-admin-card-dark rounded-2xl border border-white/5 p-6 flex flex-col">
                     <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-lg font-bold text-white">Top Classes</h3>
-                        <a href="#" className="text-admin-secondary text-sm font-medium hover:underline">View All</a>
+                        <h3 className="text-lg font-bold text-white">수업별 진행률</h3>
                     </div>
-                    <div className="space-y-4">
-                        {/* Quest Item 1 */}
-                        <div className="flex items-center gap-4 p-3 rounded-xl bg-background-dark border border-white/5 hover:border-admin-secondary/30 transition-colors group cursor-pointer">
-                            <div className="w-10 h-10 rounded-lg bg-admin-pink/20 flex items-center justify-center text-admin-pink">
-                                <span className="material-symbols-outlined">rocket_launch</span>
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="text-white text-sm font-semibold group-hover:text-admin-secondary transition-colors">Onboarding Mission</h4>
-                                <p className="text-gray-500 text-xs">980 Participants</p>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-admin-green text-sm font-bold">95%</span>
-                            </div>
-                        </div>
-                        {/* Quest Item 2 */}
-                        <div className="flex items-center gap-4 p-3 rounded-xl bg-background-dark border border-white/5 hover:border-admin-secondary/30 transition-colors group cursor-pointer">
-                            <div className="w-10 h-10 rounded-lg bg-admin-secondary/20 flex items-center justify-center text-admin-secondary">
-                                <span className="material-symbols-outlined">code</span>
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="text-white text-sm font-semibold group-hover:text-admin-secondary transition-colors">Python Basics</h4>
-                                <p className="text-gray-500 text-xs">450 Participants</p>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-admin-green text-sm font-bold">72%</span>
-                            </div>
-                        </div>
-                        {/* Quest Item 3 */}
-                        <div className="flex items-center gap-4 p-3 rounded-xl bg-background-dark border border-white/5 hover:border-admin-secondary/30 transition-colors group cursor-pointer">
-                            <div className="w-10 h-10 rounded-lg bg-admin-yellow/20 flex items-center justify-center text-admin-yellow">
-                                <span className="material-symbols-outlined">security</span>
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="text-white text-sm font-semibold group-hover:text-admin-secondary transition-colors">Cyber Awareness</h4>
-                                <p className="text-gray-500 text-xs">320 Participants</p>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-admin-yellow text-sm font-bold">45%</span>
-                            </div>
-                        </div>
-                        {/* Quest Item 4 */}
-                        <div className="flex items-center gap-4 p-3 rounded-xl bg-admin-primary/20 hover:border-admin-secondary/30 transition-colors group cursor-pointer">
-                            <div className="w-10 h-10 rounded-lg bg-admin-primary/20 flex items-center justify-center text-admin-primary">
-                                <span className="material-symbols-outlined">psychology</span>
-                            </div>
-                            <div className="flex-1">
-                                <h4 className="text-white text-sm font-semibold group-hover:text-admin-secondary transition-colors">Soft Skills 101</h4>
-                                <p className="text-gray-500 text-xs">210 Participants</p>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-admin-yellow text-sm font-bold">58%</span>
-                            </div>
-                        </div>
+                    <div className="space-y-4 flex-1">
+                        {courseStats.length === 0 && (
+                            <div className="flex-1 flex items-center justify-center text-gray-500 py-8">등록된 수업이 없습니다.</div>
+                        )}
+                        {courseStats.map((cs, idx) => {
+                            const color = colorSets[idx % colorSets.length];
+                            return (
+                                <div key={cs.id} className="flex items-center gap-4 p-3 rounded-xl bg-background-dark border border-white/5 hover:border-admin-secondary/30 transition-colors group cursor-pointer">
+                                    <div className={`w-10 h-10 rounded-lg ${color.bg} flex items-center justify-center ${color.text}`}>
+                                        <span className="text-xl">{cs.icon || '📚'}</span>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <h4 className="text-white text-sm font-semibold group-hover:text-admin-secondary transition-colors truncate">{cs.title || cs.name}</h4>
+                                        <p className="text-gray-500 text-xs">{cs.studentCount}명 수강 · {cs.stages.length}개 스테이지</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className={`text-sm font-bold ${cs.pct >= 70 ? 'text-admin-green' : cs.pct >= 30 ? 'text-admin-yellow' : 'text-admin-pink'}`}>{cs.pct}%</span>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
 
-            {/* Recent Activity Table */}
+            {/* Recent Activity */}
             <div className="bg-admin-card-dark rounded-2xl border border-white/5 overflow-hidden">
-                <div className="p-6 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <h3 className="text-lg font-bold text-white">Recent User Activity</h3>
-                    <div className="flex items-center gap-2">
-                        <button className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-400 bg-background-dark hover:text-white rounded border border-white/5 hover:border-white/20 transition-all">
-                            <span className="material-symbols-outlined text-[16px]">filter_list</span>
-                            Filter
-                        </button>
-                        <button className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-400 bg-background-dark hover:text-white rounded border border-white/5 hover:border-white/20 transition-all">
-                            <span className="material-symbols-outlined text-[16px]">download</span>
-                            Export
-                        </button>
-                    </div>
+                <div className="p-6 border-b border-white/5">
+                    <h3 className="text-lg font-bold text-white">최근 활동 내역</h3>
                 </div>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-white/5 text-gray-400 text-xs uppercase tracking-wider">
-                                <th className="px-6 py-4 font-semibold">User</th>
-                                <th className="px-6 py-4 font-semibold">Class / Action</th>
-                                <th className="px-6 py-4 font-semibold">Points Earned</th>
-                                <th className="px-6 py-4 font-semibold">Date & Time</th>
-                                <th className="px-6 py-4 font-semibold text-right">Status</th>
+                                <th className="px-6 py-4 font-semibold">학생</th>
+                                <th className="px-6 py-4 font-semibold">활동 내용</th>
+                                <th className="px-6 py-4 font-semibold">별 사용</th>
+                                <th className="px-6 py-4 font-semibold">날짜</th>
+                                <th className="px-6 py-4 font-semibold text-right">상태</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5 text-sm">
-                            {/* Static rows for demo */}
-                            <tr className="group hover:bg-white/5 transition-colors">
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-cover bg-center" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Sarah+Jenkins&background=random')" }}></div>
-                                        <div>
-                                            <p className="font-medium text-white">Sarah Jenkins</p>
-                                            <p className="text-xs text-gray-500">Design Team</p>
+                            {recentPurchases.length === 0 && (
+                                <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-500">아직 활동 내역이 없습니다.</td></tr>
+                            )}
+                            {recentPurchases.map((p, idx) => (
+                                <tr key={idx} className="group hover:bg-white/5 transition-colors">
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-cover bg-center" style={{ backgroundImage: `url('https://ui-avatars.com/api/?name=${encodeURIComponent(p.studentName || p.studentId)}&background=random')` }}></div>
+                                            <div>
+                                                <p className="font-medium text-white">{p.studentName || p.studentId}</p>
+                                                <p className="text-xs text-gray-500">{p.studentId}</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 text-gray-300">Completed <span className="text-white font-medium">Design Thinking Module 1</span></td>
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-1 text-admin-yellow font-medium">
-                                        <span className="material-symbols-outlined text-[16px]">monetization_on</span>
-                                        +250
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 text-gray-400">Oct 24, 2:30 PM</td>
-                                <td className="px-6 py-4 text-right">
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-admin-green/10 text-admin-green border border-admin-green/20">
-                                        Completed
-                                    </span>
-                                </td>
-                            </tr>
-                            <tr className="group hover:bg-white/5 transition-colors">
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-cover bg-center" style={{ backgroundImage: "url('https://ui-avatars.com/api/?name=Michael+Chen&background=random')" }}></div>
-                                        <div>
-                                            <p className="font-medium text-white">Michael Chen</p>
-                                            <p className="text-xs text-gray-500">Engineering</p>
+                                    </td>
+                                    <td className="px-6 py-4 text-gray-300">
+                                        <span className="text-lg mr-1">{p.itemIcon}</span>
+                                        <span className="text-white font-medium">{p.itemName}</span> 구매
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-1 text-admin-yellow font-medium">
+                                            <span className="material-symbols-outlined text-[16px]">star</span>
+                                            -{p.price}
                                         </div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 text-gray-300">Started <span className="text-white font-medium">Advanced Kubernetes</span></td>
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-1 text-gray-500 font-medium">
-                                        <span className="material-symbols-outlined text-[16px]">monetization_on</span>
-                                        0
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 text-gray-400">Oct 24, 1:45 PM</td>
-                                <td className="px-6 py-4 text-right">
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-admin-pink/10 text-admin-pink border border-admin-pink/20">
-                                        In Progress
-                                    </span>
-                                </td>
-                            </tr>
+                                    </td>
+                                    <td className="px-6 py-4 text-gray-400">{new Date(p.timestamp).toLocaleString('ko-KR')}</td>
+                                    <td className="px-6 py-4 text-right">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.status === 'delivered'
+                                            ? 'bg-admin-green/10 text-admin-green border border-admin-green/20'
+                                            : 'bg-admin-yellow/10 text-admin-yellow border border-admin-yellow/20'
+                                            }`}>
+                                            {p.status === 'delivered' ? '수령 완료' : '준비 중'}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                 </div>
@@ -241,6 +190,9 @@ const DashboardOverview = ({ totalLearners, totalClasses, pointsIssued, courseCo
         </div>
     );
 };
+
+// --- Sub-components for Views ---
+
 
 const ExcelUploadModal = ({ isOpen, onClose, onUpload }) => {
     const [file, setFile] = useState(null);
@@ -2100,12 +2052,12 @@ function MarketplaceManagement() {
                                     <select
                                         value={newItem.category}
                                         onChange={e => setNewItem({ ...newItem, category: e.target.value })}
-                                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-admin-secondary"
+                                        className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-admin-secondary"
                                     >
-                                        <option value="snack">🍪 간식/음료</option>
-                                        <option value="school">🏫 학교생활</option>
-                                        <option value="stationery">✏️ 학용품</option>
-                                        <option value="special">🏆 특별보상</option>
+                                        <option value="snack" className="bg-[#1e1e2e] text-white">🍪 간식/음료</option>
+                                        <option value="school" className="bg-[#1e1e2e] text-white">🏫 학교생활</option>
+                                        <option value="stationery" className="bg-[#1e1e2e] text-white">✏️ 학용품</option>
+                                        <option value="special" className="bg-[#1e1e2e] text-white">🏆 특별보상</option>
                                     </select>
                                 </div>
                                 <div className="w-24">
@@ -2207,12 +2159,12 @@ function MarketplaceManagement() {
                                     <select
                                         value={editingItem.category}
                                         onChange={e => setEditingItem({ ...editingItem, category: e.target.value })}
-                                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-admin-secondary"
+                                        className="w-full bg-[#1e1e2e] border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-admin-secondary"
                                     >
-                                        <option value="snack">🍪 간식/음료</option>
-                                        <option value="school">🏫 학교생활</option>
-                                        <option value="stationery">✏️ 학용품</option>
-                                        <option value="special">🏆 특별보상</option>
+                                        <option value="snack" className="bg-[#1e1e2e] text-white">🍪 간식/음료</option>
+                                        <option value="school" className="bg-[#1e1e2e] text-white">🏫 학교생활</option>
+                                        <option value="stationery" className="bg-[#1e1e2e] text-white">✏️ 학용품</option>
+                                        <option value="special" className="bg-[#1e1e2e] text-white">🏆 특별보상</option>
                                     </select>
                                 </div>
                                 <div className="w-24">
@@ -2376,15 +2328,34 @@ export default function AdminPage() {
     const navigate = useNavigate();
     const { user, logout, registeredStudents, registerStudent, removeStudent, bulkRegisterStudents, updateStudent } = useAuthStore();
     const { courses, addCourse, deleteCourse } = useStageStore();
-    const { submissions } = useProgressStore();
+    const { submissions, totalStars, progress } = useProgressStore();
     const [currentView, setCurrentView] = useState('dashboard');
     const [searchTerm, setSearchTerm] = useState('');
 
     // --- Data Aggregation for Dashboard ---
     const totalLearners = registeredStudents.length;
-    const totalClasses = courses.length; // Approximate for now
-    const pointsIssued = "1.5M"; // Placeholder
-    const courseCompletion = "78%"; // Placeholder
+    const totalClasses = courses.length;
+    const { purchases } = useMarketplaceStore();
+
+    const totalStarsIssued = Object.values(totalStars).reduce((sum, s) => sum + s, 0);
+
+    const courseCompletion = useMemo(() => {
+        if (courses.length === 0 || registeredStudents.length === 0) return 0;
+        let totalDone = 0;
+        let totalPossible = 0;
+        registeredStudents.forEach(s => {
+            courses.forEach(course => {
+                course.stages.forEach(stage => {
+                    const sp = progress?.[s.studentId]?.[course.id]?.[stage.id];
+                    ['easy', 'normal', 'hard'].forEach(d => {
+                        totalPossible++;
+                        if (sp?.[d]) totalDone++;
+                    });
+                });
+            });
+        });
+        return totalPossible > 0 ? Math.round((totalDone / totalPossible) * 100) : 0;
+    }, [courses, registeredStudents, progress])
 
     return (
         <div className="flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark text-slate-900 dark:text-white font-display">
@@ -2534,8 +2505,12 @@ export default function AdminPage() {
                         <DashboardOverview
                             totalLearners={totalLearners}
                             totalClasses={totalClasses}
-                            pointsIssued={pointsIssued}
+                            totalStarsIssued={totalStarsIssued}
                             courseCompletion={courseCompletion}
+                            courses={courses}
+                            registeredStudents={registeredStudents}
+                            progress={progress}
+                            purchases={purchases}
                         />
                     )}
                     {currentView === 'learners' && (
