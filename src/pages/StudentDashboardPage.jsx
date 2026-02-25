@@ -416,32 +416,32 @@ export default function StudentDashboardPage() {
                                         <h1 className="text-2xl md:text-3xl font-bold mb-2">안녕하세요, {user?.name || '학생'}! 👋</h1>
                                         <p className="text-slate-500 mb-8">오늘도 열심히 퀘스트를 수행하고 ⭐ 별을 모아보세요!</p>
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-amber-200 hover:border-amber-400 transition-colors">
-                                                <span className="text-xs uppercase tracking-wide text-slate-500">내 별</span>
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col justify-center gap-2 border border-amber-200 hover:border-amber-400 transition-colors aspect-square hover:shadow-md hover:-translate-y-1 duration-300">
+                                                <span className="text-sm tracking-wide text-slate-500">내 별</span>
                                                 <div className="flex items-center gap-2">
-                                                    <Star size={20} className="text-amber-500 fill-amber-500" />
-                                                    <span className="text-xl font-bold text-amber-700">{myStars}</span>
+                                                    <Star size={24} className="text-amber-500 fill-amber-500" />
+                                                    <span className="text-2xl font-bold text-amber-700">{myStars}</span>
                                                 </div>
                                             </div>
-                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-primary/20 hover:border-primary/50 transition-colors">
-                                                <span className="text-xs uppercase tracking-wide text-slate-500">수강 중</span>
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col justify-center gap-2 border border-primary/20 hover:border-primary/50 transition-colors aspect-square hover:shadow-md hover:-translate-y-1 duration-300">
+                                                <span className="text-sm tracking-wide text-slate-500">수강 중</span>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="material-symbols-outlined text-primary">school</span>
-                                                    <span className="text-xl font-bold">{courses.length}개 수업</span>
+                                                    <span className="material-symbols-outlined text-primary text-[24px]">school</span>
+                                                    <span className="text-2xl font-bold">{courses.length}개 수업</span>
                                                 </div>
                                             </div>
-                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-secondary/20 hover:border-secondary/50 transition-colors">
-                                                <span className="text-xs uppercase tracking-wide text-slate-500">내 순위</span>
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col justify-center gap-2 border border-secondary/20 hover:border-secondary/50 transition-colors aspect-square hover:shadow-md hover:-translate-y-1 duration-300">
+                                                <span className="text-sm tracking-wide text-slate-500">내 순위</span>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="material-symbols-outlined text-secondary">leaderboard</span>
-                                                    <span className="text-xl font-bold">#{myRank}</span>
+                                                    <span className="material-symbols-outlined text-secondary text-[24px]">leaderboard</span>
+                                                    <span className="text-2xl font-bold">#{myRank}</span>
                                                 </div>
                                             </div>
-                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col gap-1 border border-accent-pink/20 hover:border-accent-pink/50 transition-colors">
-                                                <span className="text-xs uppercase tracking-wide text-slate-500">전체 학생</span>
+                                            <div className="bg-slate-50 p-4 rounded-xl flex flex-col justify-center gap-2 border border-accent-pink/20 hover:border-accent-pink/50 transition-colors aspect-square hover:shadow-md hover:-translate-y-1 duration-300">
+                                                <span className="text-sm tracking-wide text-slate-500">전체 학생</span>
                                                 <div className="flex items-center gap-2">
-                                                    <span className="material-symbols-outlined text-accent-pink">group</span>
-                                                    <span className="text-xl font-bold">{registeredStudents.length}명</span>
+                                                    <span className="material-symbols-outlined text-accent-pink text-[24px]">group</span>
+                                                    <span className="text-2xl font-bold">{registeredStudents.length}명</span>
                                                 </div>
                                             </div>
                                         </div>
