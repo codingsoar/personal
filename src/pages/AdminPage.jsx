@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -7,6 +7,7 @@ import { useStageStore } from '../stores/useStageStore';
 import useThemeStore from '../stores/useThemeStore';
 import { useMarketplaceStore } from '../stores/useMarketplaceStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
+import { useAssessmentStore, ASSESSMENT_METHODS, findNearestScore, ACHIEVEMENT_LEVELS, autoGenerateScoring, scoreFromCheckedCount, getAchievementGrade } from '../stores/useAssessmentStore';
 import DashboardCalendar from '../components/DashboardCalendar';
 // --- Sub-components for Views ---
 
@@ -1583,194 +1584,708 @@ const ClassManagement = ({ courses, onAddCourse, onDeleteCourse }) => {
 const AssessmentsManagement = ({ courses, registeredStudents }) => {
     const [selectedCourseId, setSelectedCourseId] = useState(courses.length > 0 ? courses[0].id : '');
     const selectedCourse = courses.find(c => c.id === selectedCourseId);
-    const { progress } = useProgressStore();
+    const {
+        assessmentPlans, createPlan, updatePlanWeights, addPerformanceArea,
+        updatePerformanceArea, removePerformanceArea,
+        studentScores, setWrittenExamScore, calculateTotal, getAreaFinalScore,
+        uploadNeisScores, addSessionComment, deleteSessionComment,
+        getStudentComments, saveGeneratedReport, generatedReports,
+        sessionScores, addSessionScore, updateSessionStudentScore, deleteSessionScore,
+        getSessionScoresForArea,
+    } = useAssessmentStore();
 
-    const studentsWithProgress = useMemo(() => {
+    const [activeSubTab, setActiveSubTab] = useState('plan');
+    const [editAreaModal, setEditAreaModal] = useState(null);
+    const [scoringSessionModal, setScoringSessionModal] = useState(null); // { areaId }
+    const [commentTarget, setCommentTarget] = useState('');
+    const [newAreaName, setNewAreaName] = useState('');
+    const [newAreaWeight, setNewAreaWeight] = useState(10);
+    const [commentDate, setCommentDate] = useState(new Date().toISOString().split('T')[0]);
+    const [commentText, setCommentText] = useState('');
+    const [aiLoading, setAiLoading] = useState(false);
+    const [aiStudentId, setAiStudentId] = useState(null);
+
+    // Edit area modal states
+    const [editField, setEditField] = useState({ achievementStandard: '', newElement: '', newLevelLabel: '', newLevelDesc: '', newLevelScore: '' });
+
+    const plan = assessmentPlans[selectedCourseId];
+    const ensurePlan = () => { if (!plan) createPlan(selectedCourseId); };
+
+    const enrolledStudents = useMemo(() => {
         if (!selectedCourse) return [];
+        return registeredStudents.filter(s => s.courseIds?.includes(selectedCourseId));
+    }, [selectedCourseId, registeredStudents, selectedCourse]);
 
-        // Filter students enrolled in the selected course
-        const enrolledStudents = registeredStudents.filter(student =>
-            student.courseIds && student.courseIds.includes(selectedCourseId)
-        );
-
-        // Calculate progress for each student
-        return enrolledStudents.map(student => {
-            const progressData = progress?.[student.studentId]?.[selectedCourseId] || {};
-
-            // Calculate total stages and completed stages
-            const totalStages = selectedCourse.stages ? selectedCourse.stages.length : 0;
-            let stagesCompleted = 0;
-            let totalMissions = totalStages * 3; // 3 missions per stage (Easy, Normal, Hard)
-            let missionsCompleted = 0;
-
-            if (selectedCourse.stages) {
-                selectedCourse.stages.forEach(stage => {
-                    const stageProgress = progressData[stage.id];
-                    if (stageProgress) {
-                        if (stageProgress.easy) missionsCompleted++;
-                        if (stageProgress.normal) missionsCompleted++;
-                        if (stageProgress.hard) missionsCompleted++;
-
-                        if (stageProgress.easy && stageProgress.normal && stageProgress.hard) {
-                            stagesCompleted++;
-                        }
-                    }
-                });
-            }
-
-            const progressPercentage = totalMissions > 0 ? Math.round((missionsCompleted / totalMissions) * 100) : 0;
-
-            return {
-                ...student,
-                stagesCompleted,
-                totalStages,
-                missionsCompleted,
-                totalMissions,
-                progressPercentage
-            };
-        });
-    }, [selectedCourseId, registeredStudents, courses, progress]);
-
-    // Calculate course statistics
-    const stats = useMemo(() => {
-        if (studentsWithProgress.length === 0) return { avgProgress: 0, totalEnrolled: 0, completedStudents: 0 };
-
-        const totalProgress = studentsWithProgress.reduce((sum, s) => sum + s.progressPercentage, 0);
-        const avgProgress = Math.round(totalProgress / studentsWithProgress.length);
-        const completedStudents = studentsWithProgress.filter(s => s.progressPercentage === 100).length;
-
-        return {
-            avgProgress,
-            totalEnrolled: studentsWithProgress.length,
-            completedStudents
+    const handleNeisUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const text = ev.target.result;
+                const lines = text.split('\n').filter(l => l.trim());
+                const data = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(',').map(c => c.trim());
+                    if (cols.length >= 2) data.push({ studentId: cols[0], score: Number(cols[1]) });
+                }
+                uploadNeisScores(selectedCourseId, file.name, data);
+                alert(`${data.length}명의 지필평가 점수가 업로드되었습니다.`);
+            } catch { alert('CSV 형식 오류'); }
         };
-    }, [studentsWithProgress]);
+        reader.readAsText(file);
+        e.target.value = '';
+    };
+
+    const handleGenerateReport = async (studentId) => {
+        setAiLoading(true); setAiStudentId(studentId);
+        const comments = getStudentComments(selectedCourseId, studentId);
+        const student = registeredStudents.find(s => s.studentId === studentId);
+        const total = calculateTotal(selectedCourseId, studentId);
+        const report = `[AI 과세특 초안 - ${student?.name || studentId}]\n\n${selectedCourse?.title || '수업'} 과목에서 꾸준한 학습 참여를 보이며, 수업 활동에 적극적으로 임하는 모습이 관찰됨. 특히 실습 과제에서 높은 집중력을 발휘하였음. ${comments.length > 0 ? `총 ${comments.length}회의 수업에서 교사 코멘트가 기록되었으며, ` : ''}종합 점수 ${total?.total || '-'}점.\n\n※ Gemini API 키를 설정하면 실제 AI 과세특이 생성됩니다.`;
+        saveGeneratedReport(selectedCourseId, studentId, report);
+        setAiLoading(false); setAiStudentId(null);
+    };
+
+    // 수업 채점 모달: 새 차시 추가
+    const [newSessionDate, setNewSessionDate] = useState(new Date().toISOString().split('T')[0]);
+    const [newSessionLabel, setNewSessionLabel] = useState('');
+
+    const subTabs = [
+        { id: 'plan', label: '평가 계획', icon: 'edit_note' },
+        { id: 'scoring', label: '채점 & 성적', icon: 'grading' },
+        { id: 'comments', label: '코멘트 & 과세특', icon: 'forum' },
+    ];
 
     return (
-        <div className="max-w-7xl mx-auto space-y-8">
-            <div className="flex justify-between items-center">
+        <div className="max-w-7xl mx-auto space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h3 className="text-2xl font-bold text-white">Assessments</h3>
-                    <p className="text-gray-400 text-sm mt-1">Monitor student performance and progress</p>
+                    <p className="text-gray-400 text-sm mt-1">평가 계획 설정, 채점, 수업 코멘트 관리</p>
                 </div>
-
-                {/* Course Filter */}
                 <div className="flex items-center gap-3 bg-admin-card-dark p-2 rounded-xl border border-white/10">
-                    <span className="text-sm text-gray-400 pl-2">Class:</span>
-                    <select
-                        value={selectedCourseId}
-                        onChange={(e) => setSelectedCourseId(e.target.value)}
-                        className="bg-white/5 border-none rounded-lg text-sm text-white focus:ring-1 focus:ring-admin-primary py-1.5 pl-3 pr-8 cursor-pointer hover:bg-white/10 transition-colors"
-                    >
-                        {courses.map(course => (
-                            <option key={course.id} value={course.id} className="bg-admin-card-dark">
-                                {course.title}
-                            </option>
-                        ))}
+                    <span className="text-sm text-gray-400 pl-2">수업:</span>
+                    <select value={selectedCourseId} onChange={e => setSelectedCourseId(e.target.value)} className="bg-white/5 border-none rounded-lg text-sm text-white focus:ring-1 focus:ring-admin-primary py-1.5 pl-3 pr-8 cursor-pointer hover:bg-white/10">
+                        {courses.map(c => <option key={c.id} value={c.id} className="bg-admin-card-dark">{c.title}</option>)}
                     </select>
                 </div>
             </div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/5 flex items-start justify-between relative overflow-hidden group hover:border-admin-primary/30 transition-colors">
-                    <div className="relative z-10">
-                        <p className="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Total Enrolled</p>
-                        <h4 className="text-3xl font-bold text-white mt-1">{stats.totalEnrolled}</h4>
-                        <p className="text-sm text-gray-500 mt-2">Students in this class</p>
-                    </div>
-                    <div className="bg-blue-500/10 p-3 rounded-xl">
-                        <span className="material-symbols-outlined text-blue-400">groups</span>
-                    </div>
-                </div>
-
-                <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/5 flex items-start justify-between relative overflow-hidden group hover:border-admin-primary/30 transition-colors">
-                    <div className="relative z-10">
-                        <p className="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Avg. Completion</p>
-                        <h4 className="text-3xl font-bold text-white mt-1">{stats.avgProgress}%</h4>
-                        <p className="text-sm text-gray-500 mt-2">Overall class progress</p>
-                    </div>
-                    <div className="bg-green-500/10 p-3 rounded-xl">
-                        <span className="material-symbols-outlined text-green-400">trending_up</span>
-                    </div>
-                </div>
-
-                <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/5 flex items-start justify-between relative overflow-hidden group hover:border-admin-primary/30 transition-colors">
-                    <div className="relative z-10">
-                        <p className="text-gray-400 text-xs font-medium uppercase tracking-wider mb-1">Fully Completed</p>
-                        <h4 className="text-3xl font-bold text-white mt-1">{stats.completedStudents}</h4>
-                        <p className="text-sm text-gray-500 mt-2">Students finished all stages</p>
-                    </div>
-                    <div className="bg-purple-500/10 p-3 rounded-xl">
-                        <span className="material-symbols-outlined text-purple-400">emoji_events</span>
-                    </div>
-                </div>
+            <div className="flex gap-2 p-1.5 bg-admin-card-dark rounded-xl border border-white/10">
+                {subTabs.map(tab => (
+                    <button key={tab.id} onClick={() => { ensurePlan(); setActiveSubTab(tab.id); }}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all flex-1 justify-center ${activeSubTab === tab.id ? 'bg-admin-primary text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}>
+                        <span className="material-symbols-outlined text-lg">{tab.icon}</span>{tab.label}
+                    </button>
+                ))}
             </div>
 
-            {/* Student Progress Table */}
-            <div className="bg-admin-card-dark rounded-2xl border border-white/5">
-                <div>
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="bg-white/5 text-gray-400 text-xs uppercase tracking-wider">
-                                <th className="px-6 py-4 font-semibold">Student Name</th>
-                                <th className="px-6 py-4 font-semibold">Student ID</th>
-                                <th className="px-6 py-4 font-semibold">Progress</th>
-                                <th className="px-6 py-4 font-semibold">Stages Completed</th>
-                                <th className="px-6 py-4 font-semibold">Missions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5 text-sm">
-                            {studentsWithProgress.map((student) => (
-                                <tr key={student.studentId} className="group hover:bg-white/5 transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-cover bg-center" style={{ backgroundImage: `url('https://ui-avatars.com/api/?name=${student.name}&background=random')` }}></div>
-                                            <span className="font-medium text-white">{student.name}</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-300">{student.studentId}</td>
-                                    <td className="px-6 py-4">
-                                        <div className="w-full max-w-xs flex items-center gap-3">
-                                            <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full rounded-full transition-all duration-500 ${student.progressPercentage === 100 ? 'bg-green-500' :
-                                                        student.progressPercentage > 50 ? 'bg-blue-500' : 'bg-admin-secondary'
-                                                        }`}
-                                                    style={{ width: `${student.progressPercentage}%` }}
-                                                ></div>
+            {/* ═══ Plan Setup ═══ */}
+            {activeSubTab === 'plan' && (
+                <div className="space-y-6">
+                    {!plan ? (
+                        <div className="text-center py-12 bg-admin-card-dark rounded-2xl border border-white/10">
+                            <span className="material-symbols-outlined text-5xl text-gray-500 mb-4">assignment_add</span>
+                            <p className="text-gray-400 mb-4">평가 계획이 없습니다.</p>
+                            <button onClick={() => createPlan(selectedCourseId)} className="px-6 py-3 bg-admin-primary text-white rounded-xl font-medium hover:bg-admin-primary/80">평가 계획 만들기</button>
+                        </div>
+                    ) : (
+                        <>
+                            {/* 지필/수행 비율 */}
+                            <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10">
+                                <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-admin-primary">tune</span>지필 / 수행 비율 설정
+                                </h4>
+                                <div className="flex justify-between text-sm mb-2">
+                                    <span className="text-blue-400">지필 {plan.writtenExamWeight}%</span>
+                                    <span className="text-emerald-400">수행 {plan.performanceWeight}%</span>
+                                </div>
+                                <input type="range" min="0" max="100" step="5" value={plan.writtenExamWeight}
+                                    onChange={e => updatePlanWeights(selectedCourseId, Number(e.target.value))}
+                                    className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                                    style={{ background: `linear-gradient(to right, #3b82f6 ${plan.writtenExamWeight}%, #10b981 ${plan.writtenExamWeight}%)` }} />
+                                <div className="mt-4 flex items-center gap-3">
+                                    <span className="text-sm text-gray-400">지필 만점:</span>
+                                    <input type="number" min="1" value={plan.writtenExamMaxScore}
+                                        onChange={e => useAssessmentStore.setState(s => ({ assessmentPlans: { ...s.assessmentPlans, [selectedCourseId]: { ...s.assessmentPlans[selectedCourseId], writtenExamMaxScore: Number(e.target.value) } } }))}
+                                        className="w-24 bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2 text-center" />
+                                    <span className="text-sm text-gray-500">점</span>
+                                </div>
+                            </div>
+
+                            {/* 수행평가 영역 */}
+                            <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10">
+                                <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-emerald-400">checklist</span>수행평가 영역
+                                </h4>
+                                <div className="space-y-3">
+                                    {plan.performanceAreas.map((area, idx) => (
+                                        <div key={area.id} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-admin-primary/30 transition-colors">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-xl font-bold text-admin-primary">{String.fromCharCode(0xAC00 + idx)}.</span>
+                                                    <div>
+                                                        <span className="font-semibold text-white">{area.name}</span>
+                                                        <span className="text-sm text-gray-400 ml-3">비율 {area.weight}%</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => { setEditAreaModal({ ...area }); setEditField({ achievementStandard: area.achievementStandard || '', newElement: '', newLevelLabel: '', newLevelDesc: '', newLevelScore: '' }); }}
+                                                        className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white"><span className="material-symbols-outlined text-lg">edit</span></button>
+                                                    <button onClick={() => { if (confirm('삭제?')) removePerformanceArea(selectedCourseId, area.id); }}
+                                                        className="p-2 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400"><span className="material-symbols-outlined text-lg">delete</span></button>
+                                                </div>
                                             </div>
-                                            <span className="text-xs font-medium text-gray-300 w-8 text-right">{student.progressPercentage}%</span>
+                                            {/* 요약 정보 */}
+                                            <div className="mt-3 space-y-1.5">
+                                                {area.achievementStandard && (
+                                                    <div className="text-xs text-gray-400"><span className="text-emerald-400 font-medium">성취기준:</span> {area.achievementStandard.length > 60 ? area.achievementStandard.slice(0, 60) + '...' : area.achievementStandard}</div>
+                                                )}
+                                                <div className="flex flex-wrap gap-1.5 mt-1">
+                                                    {area.assessmentMethods?.map(m => (
+                                                        <span key={m} className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full">{m}</span>
+                                                    ))}
+                                                    {area.assessmentElements?.map((el, i) => (
+                                                        <span key={i} className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full">{el.length > 15 ? el.slice(0, 15) + '…' : el}</span>
+                                                    ))}
+                                                </div>
+                                                <div className="flex gap-1.5 mt-1 items-center">
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${area.scoringMode === 'checklist' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-admin-primary/20 text-admin-primary/80'}`}>
+                                                        {area.scoringMode === 'checklist' ? '✓ 체크리스트' : '직접 입력'}
+                                                    </span>
+                                                    {area.scoringLevels?.map(lv => (
+                                                        <span key={lv.id} className="text-[10px] bg-white/10 text-gray-300 px-2 py-0.5 rounded-full">{lv.label}:{lv.score}점</span>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-300">
-                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${student.stagesCompleted === student.totalStages
-                                            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
-                                            : 'bg-white/5 text-gray-300 border border-white/10'
-                                            }`}>
-                                            {student.stagesCompleted} / {student.totalStages}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-300">
-                                        <span className="text-gray-400">{student.missionsCompleted} / {student.totalMissions}</span>
-                                    </td>
-                                </tr>
-                            ))}
-                            {studentsWithProgress.length === 0 && (
-                                <tr>
-                                    <td colSpan="5" className="px-6 py-12 text-center text-gray-500 flex flex-col items-center justify-center gap-2">
-                                        <span className="material-symbols-outlined text-4xl opacity-50">school</span>
-                                        <span>No students enrolled in this class yet.</span>
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+                                    ))}
+                                </div>
+                                {/* 새 영역 추가 */}
+                                <div className="mt-4 p-4 border-2 border-dashed border-white/10 rounded-xl">
+                                    <div className="flex flex-wrap items-end gap-3">
+                                        <div className="flex-1 min-w-[200px]">
+                                            <label className="text-xs text-gray-400 mb-1 block">영역 이름</label>
+                                            <input value={newAreaName} onChange={e => setNewAreaName(e.target.value)} placeholder="예: 표현 기법" className="w-full bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2" />
+                                        </div>
+                                        <div className="w-24">
+                                            <label className="text-xs text-gray-400 mb-1 block">비율(%)</label>
+                                            <input type="number" value={newAreaWeight} onChange={e => setNewAreaWeight(Number(e.target.value))} className="w-full bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2 text-center" />
+                                        </div>
+                                        <button onClick={() => { if (!newAreaName.trim()) return; addPerformanceArea(selectedCourseId, { name: newAreaName, weight: newAreaWeight }); setNewAreaName(''); setNewAreaWeight(10); }}
+                                            className="px-4 py-2 bg-admin-primary text-white rounded-lg text-sm font-medium hover:bg-admin-primary/80 flex items-center gap-1">
+                                            <span className="material-symbols-outlined text-lg">add</span>추가
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
-            </div>
+            )}
+
+            {/* ═══ Scoring & NEIS ═══ */}
+            {activeSubTab === 'scoring' && plan && (
+                <div className="space-y-6">
+                    {/* 나이스 업로드 */}
+                    <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10">
+                        <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-blue-400">upload_file</span>나이스 지필평가 업로드
+                        </h4>
+                        <p className="text-sm text-gray-400 mb-4">CSV 형식: 학번, 점수 (첫 줄 헤더)</p>
+                        <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-white/20 rounded-xl cursor-pointer hover:border-admin-primary/50">
+                            <span className="material-symbols-outlined text-gray-400">cloud_upload</span>
+                            <span className="text-sm text-gray-400">CSV 파일 선택</span>
+                            <input type="file" accept=".csv" className="hidden" onChange={handleNeisUpload} />
+                        </label>
+                    </div>
+
+                    {/* 수업별 채점 영역 */}
+                    {plan.performanceAreas.length > 0 && (
+                        <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10">
+                            <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <span className="material-symbols-outlined text-emerald-400">fact_check</span>수업별 채점
+                            </h4>
+                            <div className="space-y-4">
+                                {plan.performanceAreas.map(area => {
+                                    const sessions = getSessionScoresForArea(selectedCourseId, area.id);
+                                    return (
+                                        <div key={area.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <div>
+                                                    <span className="font-semibold text-white">{area.name}</span>
+                                                    <span className="text-xs text-gray-400 ml-2">({sessions.length}회 채점)</span>
+                                                </div>
+                                                <button onClick={() => { setScoringSessionModal({ areaId: area.id, area }); setNewSessionLabel(`${sessions.length + 1}차시`); setNewSessionDate(new Date().toISOString().split('T')[0]); }}
+                                                    className="px-3 py-1.5 bg-admin-primary text-white rounded-lg text-xs font-medium hover:bg-admin-primary/80 flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-sm">add</span>채점 추가
+                                                </button>
+                                            </div>
+                                            {/* 채점 이력 */}
+                                            {sessions.length > 0 && (
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-xs">
+                                                        <thead>
+                                                            <tr className="border-b border-white/10">
+                                                                <th className="text-left py-2 px-2 text-gray-400">학생</th>
+                                                                {sessions.map(s => (
+                                                                    <th key={s.id} className="text-center py-2 px-2 text-gray-400">
+                                                                        <div>{s.sessionLabel}</div>
+                                                                        <div className="text-[10px] text-gray-500">{s.sessionDate}</div>
+                                                                    </th>
+                                                                ))}
+                                                                <th className="text-center py-2 px-2 text-amber-400">평균</th>
+                                                                <th className="text-center py-2 px-2 text-emerald-400">산출</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {enrolledStudents.map(student => {
+                                                                const result = getAreaFinalScore(selectedCourseId, student.studentId, area.id);
+                                                                return (
+                                                                    <tr key={student.studentId} className="border-b border-white/5">
+                                                                        <td className="py-2 px-2 text-white font-medium">{student.name}</td>
+                                                                        {sessions.map(s => (
+                                                                            <td key={s.id} className="py-2 px-2 text-center">
+                                                                                <span className={`${s.scores[student.studentId] !== undefined ? 'text-white' : 'text-gray-600'}`}>
+                                                                                    {s.scores[student.studentId] ?? '-'}
+                                                                                </span>
+                                                                            </td>
+                                                                        ))}
+                                                                        <td className="py-2 px-2 text-center text-amber-400 font-medium">{result.sessionCount > 0 ? result.avg : '-'}</td>
+                                                                        <td className="py-2 px-2 text-center text-emerald-400 font-bold">{result.sessionCount > 0 ? result.finalScore : '-'}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 종합 성적표 */}
+                    <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10 overflow-x-auto">
+                        <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-amber-400">grading</span>종합 성적표
+                        </h4>
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-white/10">
+                                    <th className="text-left py-3 px-3 text-gray-400">학생명</th>
+                                    <th className="text-center py-3 px-2 text-blue-400">지필<br /><span className="text-[10px]">({plan.writtenExamWeight}%)</span></th>
+                                    {plan.performanceAreas.map(a => (
+                                        <th key={a.id} className="text-center py-3 px-2 text-emerald-400">{a.name}<br /><span className="text-[10px]">({a.weight}%)</span></th>
+                                    ))}
+                                    <th className="text-center py-3 px-2 text-amber-400">합계</th>
+                                    <th className="text-center py-3 px-2 text-orange-400">성취율</th>
+                                    <th className="text-center py-3 px-2 text-purple-400">성취도</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {enrolledStudents.map(student => {
+                                    const sData = studentScores[selectedCourseId]?.[student.studentId];
+                                    const totalResult = calculateTotal(selectedCourseId, student.studentId);
+                                    const totalScore = totalResult?.total || 0;
+                                    const achieveRate = Math.round(totalScore);
+                                    const achieveGrade = getAchievementGrade(achieveRate);
+                                    return (
+                                        <tr key={student.studentId} className="border-b border-white/5 hover:bg-white/5">
+                                            <td className="py-3 px-3 text-white font-medium">{student.name}</td>
+                                            <td className="py-3 px-2 text-center">
+                                                <input type="number" min="0" max={plan.writtenExamMaxScore} value={sData?.writtenExamScore ?? ''} onChange={e => setWrittenExamScore(selectedCourseId, student.studentId, Number(e.target.value))} className="w-16 bg-white/5 border border-white/10 rounded-lg text-sm text-white px-2 py-1.5 text-center" placeholder="-" />
+                                            </td>
+                                            {plan.performanceAreas.map(area => {
+                                                const result = getAreaFinalScore(selectedCourseId, student.studentId, area.id);
+                                                return (
+                                                    <td key={area.id} className="py-3 px-2 text-center">
+                                                        <span className="text-white font-medium">{result.sessionCount > 0 ? result.finalScore : '-'}</span>
+                                                        {result.sessionCount > 0 && <span className="text-[10px] text-gray-500 block">avg {result.avg}</span>}
+                                                    </td>
+                                                );
+                                            })}
+                                            <td className="py-3 px-2 text-center text-amber-400 font-bold">{totalResult?.total ?? '-'}</td>
+                                            <td className="py-3 px-2 text-center text-orange-400 text-xs font-medium">{totalScore > 0 ? `${achieveRate}%` : '-'}</td>
+                                            <td className="py-3 px-2 text-center">
+                                                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${achieveGrade.color === 'emerald' ? 'bg-emerald-500/20 text-emerald-400' :
+                                                    achieveGrade.color === 'blue' ? 'bg-blue-500/20 text-blue-400' :
+                                                        achieveGrade.color === 'amber' ? 'bg-amber-500/20 text-amber-400' :
+                                                            achieveGrade.color === 'orange' ? 'bg-orange-500/20 text-orange-400' :
+                                                                'bg-red-500/20 text-red-400'}`}>
+                                                    {totalScore > 0 ? achieveGrade.grade : '-'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ Comments & 과세특 ═══ */}
+            {activeSubTab === 'comments' && (
+                <div className="space-y-6">
+                    <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10">
+                        <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-emerald-400">edit_note</span>수업 코멘트 입력
+                        </h4>
+                        <div className="flex flex-wrap items-end gap-3">
+                            <div>
+                                <label className="text-xs text-gray-400 mb-1 block">날짜</label>
+                                <input type="date" value={commentDate} onChange={e => setCommentDate(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2" />
+                            </div>
+                            <div>
+                                <label className="text-xs text-gray-400 mb-1 block">학생</label>
+                                <select value={commentTarget} onChange={e => setCommentTarget(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2">
+                                    <option value="" className="bg-admin-card-dark">선택</option>
+                                    {enrolledStudents.map(s => <option key={s.studentId} value={s.studentId} className="bg-admin-card-dark">{s.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex-1 min-w-[250px]">
+                                <label className="text-xs text-gray-400 mb-1 block">코멘트</label>
+                                <input value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="학생의 수업 참여, 태도, 성장 등..." className="w-full bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2" onKeyDown={e => { if (e.key === 'Enter' && commentTarget && commentText.trim()) { addSessionComment(selectedCourseId, commentTarget, commentDate, commentText.trim()); setCommentText(''); } }} />
+                            </div>
+                            <button onClick={() => { if (!commentTarget || !commentText.trim()) return; addSessionComment(selectedCourseId, commentTarget, commentDate, commentText.trim()); setCommentText(''); }}
+                                className="px-4 py-2 bg-admin-primary text-white rounded-lg text-sm font-medium hover:bg-admin-primary/80 flex items-center gap-1">
+                                <span className="material-symbols-outlined text-lg">send</span>저장
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10">
+                        <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <span className="material-symbols-outlined text-purple-400">smart_toy</span>학생별 코멘트 & AI 과세특
+                        </h4>
+                        <div className="space-y-4">
+                            {enrolledStudents.map(student => {
+                                const cmts = getStudentComments(selectedCourseId, student.studentId);
+                                const report = generatedReports?.[selectedCourseId]?.[student.studentId];
+                                return (
+                                    <div key={student.studentId} className="bg-white/5 rounded-xl p-4 border border-white/10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-admin-primary/20 flex items-center justify-center text-admin-primary text-sm font-bold">{student.name?.[0]}</div>
+                                                <span className="font-medium text-white">{student.name}</span>
+                                                <span className="text-xs text-gray-500">코멘트 {cmts.length}건</span>
+                                            </div>
+                                            <button onClick={() => handleGenerateReport(student.studentId)} disabled={aiLoading && aiStudentId === student.studentId}
+                                                className="px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-xs font-medium hover:bg-purple-500/30 flex items-center gap-1 disabled:opacity-50">
+                                                <span className="material-symbols-outlined text-sm">{aiLoading && aiStudentId === student.studentId ? 'hourglass_top' : 'auto_awesome'}</span>
+                                                {aiLoading && aiStudentId === student.studentId ? '생성 중...' : 'AI 과세특 생성'}
+                                            </button>
+                                        </div>
+                                        {cmts.length > 0 && (
+                                            <div className="space-y-2 mb-3 max-h-32 overflow-y-auto">
+                                                {cmts.map(c => (
+                                                    <div key={c.id} className="flex items-start gap-2 text-sm">
+                                                        <span className="text-[10px] bg-white/10 text-gray-400 px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5">{c.date}</span>
+                                                        <span className="text-gray-300 flex-1">{c.comment}</span>
+                                                        <button onClick={() => deleteSessionComment(c.id)} className="text-gray-500 hover:text-red-400 flex-shrink-0"><span className="material-symbols-outlined text-sm">close</span></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {report && (
+                                            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl mt-2">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-xs font-semibold text-purple-400 flex items-center gap-1"><span className="material-symbols-outlined text-sm">auto_awesome</span>AI 과세특</span>
+                                                    <button onClick={() => navigator.clipboard.writeText(report.text)} className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1"><span className="material-symbols-outlined text-sm">content_copy</span>복사</button>
+                                                </div>
+                                                <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">{report.text}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══ Scoring Session Modal ═══ */}
+            {scoringSessionModal && plan && (() => {
+                const area = plan.performanceAreas.find(a => a.id === scoringSessionModal.areaId);
+                if (!area) return null;
+                const sessions = getSessionScoresForArea(selectedCourseId, area.id);
+                const isChecklistMode = area.scoringMode === 'checklist';
+                const criteria = area.assessmentElements || [];
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setScoringSessionModal(null)}>
+                        <div className="bg-[#1e1e2e] rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-y-auto shadow-2xl border border-white/10 m-4" onClick={e => e.stopPropagation()}>
+                            <div className="p-6 border-b border-white/10">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-lg font-bold text-white">{area.name} — 수업별 채점</h4>
+                                    <span className={`px-2 py-1 rounded-lg text-[10px] font-medium ${isChecklistMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-admin-primary/20 text-admin-primary'}`}>
+                                        {isChecklistMode ? '✓ 체크리스트 모드' : '직접 입력 모드'}
+                                    </span>
+                                </div>
+                                <div className="flex gap-1.5 mt-2">
+                                    {area.scoringLevels.map(lv => (
+                                        <span key={lv.id} className="text-[10px] bg-white/10 text-gray-300 px-2 py-0.5 rounded-full">{lv.label}: {lv.score}점</span>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                {/* 새 차시 추가 */}
+                                <div className="flex items-end gap-3 p-3 bg-white/5 rounded-xl border border-dashed border-white/10">
+                                    <div>
+                                        <label className="text-xs text-gray-400 mb-1 block">날짜</label>
+                                        <input type="date" value={newSessionDate} onChange={e => setNewSessionDate(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg text-xs text-white px-2 py-1.5" />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 mb-1 block">차시명</label>
+                                        <input value={newSessionLabel} onChange={e => setNewSessionLabel(e.target.value)} placeholder="예: 1차시" className="bg-white/5 border border-white/10 rounded-lg text-xs text-white px-2 py-1.5 w-24" />
+                                    </div>
+                                    <button onClick={() => {
+                                        if (!newSessionLabel.trim()) return;
+                                        addSessionScore(selectedCourseId, area.id, newSessionDate, newSessionLabel);
+                                        setNewSessionLabel(`${sessions.length + 2}차시`);
+                                    }} className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-medium hover:bg-emerald-600 flex items-center gap-1">
+                                        <span className="material-symbols-outlined text-sm">add</span>차시 추가
+                                    </button>
+                                </div>
+                                {/* 기존 차시별 채점 */}
+                                {sessions.map(session => (
+                                    <div key={session.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-bold text-white">{session.sessionLabel}</span>
+                                                <span className="text-[10px] text-gray-500">{session.sessionDate}</span>
+                                            </div>
+                                            <button onClick={() => { if (confirm('이 차시 채점을 삭제하시겠습니까?')) deleteSessionScore(session.id); }}
+                                                className="text-gray-500 hover:text-red-400"><span className="material-symbols-outlined text-sm">delete</span></button>
+                                        </div>
+                                        <div className="space-y-3">
+                                            {enrolledStudents.map(student => {
+                                                const checkedItems = session.checkedCriteria?.[student.studentId] || [];
+                                                return (
+                                                    <div key={student.studentId} className="border-b border-white/5 pb-3 last:border-0 last:pb-0">
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="text-sm text-white w-20 flex-shrink-0 font-medium">{student.name}</span>
+                                                            {isChecklistMode && criteria.length > 0 ? (
+                                                                /* 체크리스트 모드 */
+                                                                <div className="flex-1">
+                                                                    <div className="flex flex-wrap gap-1.5">
+                                                                        {criteria.map((cr, idx) => {
+                                                                            const isChecked = checkedItems.includes(idx);
+                                                                            return (
+                                                                                <button key={idx} onClick={() => {
+                                                                                    let newChecked;
+                                                                                    if (isChecked) {
+                                                                                        newChecked = checkedItems.filter(x => x !== idx);
+                                                                                    } else {
+                                                                                        newChecked = [...checkedItems, idx];
+                                                                                    }
+                                                                                    // 체크 개수 → 점수 산출
+                                                                                    const derivedScore = scoreFromCheckedCount(area.scoringLevels, newChecked.length);
+                                                                                    updateSessionStudentScore(session.id, student.studentId, derivedScore, newChecked);
+                                                                                }}
+                                                                                    title={cr}
+                                                                                    className={`w-7 h-7 rounded-md text-xs font-bold transition-all ${isChecked
+                                                                                        ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30'
+                                                                                        : 'bg-white/5 text-gray-500 hover:bg-white/10 border border-white/10'}`}>
+                                                                                    {isChecked ? '✓' : (idx + 1)}
+                                                                                </button>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 mt-1.5">
+                                                                        <span className="text-[10px] text-gray-500">{checkedItems.length}/{criteria.length} 만족</span>
+                                                                        <span className="text-[10px] text-amber-400 font-medium">→ {session.scores[student.studentId] ?? '-'}점</span>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                /* 직접 입력 모드 */
+                                                                <div className="flex gap-1.5 flex-1 flex-wrap">
+                                                                    {area.scoringLevels.map(lv => {
+                                                                        const isSelected = session.scores[student.studentId] === lv.score;
+                                                                        return (
+                                                                            <button key={lv.id} onClick={() => updateSessionStudentScore(session.id, student.studentId, lv.score)}
+                                                                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${isSelected
+                                                                                    ? 'bg-admin-primary text-white shadow-lg ring-2 ring-admin-primary/50'
+                                                                                    : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10'}`}>
+                                                                                {lv.label} ({lv.score})
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="p-4 border-t border-white/10 flex justify-end">
+                                <button onClick={() => setScoringSessionModal(null)} className="px-6 py-2.5 bg-admin-primary text-white rounded-xl font-medium hover:bg-admin-primary/80">닫기</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* ═══ Edit Area Modal ═══ */}
+            {editAreaModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditAreaModal(null)}>
+                    <div className="bg-[#1e1e2e] rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl border border-white/10 m-4" onClick={e => e.stopPropagation()}>
+                        <div className="p-6 border-b border-white/10">
+                            <h4 className="text-lg font-bold text-white">영역 편집: {editAreaModal.name}</h4>
+                        </div>
+                        <div className="p-6 space-y-5">
+                            {/* 기본 정보 */}
+                            <div className="flex gap-3">
+                                <div className="flex-1">
+                                    <label className="text-xs text-gray-400 mb-1 block">영역 이름</label>
+                                    <input value={editAreaModal.name} onChange={e => { const name = e.target.value; setEditAreaModal({ ...editAreaModal, name }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { name }); }} className="w-full bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2" />
+                                </div>
+                                <div className="w-24">
+                                    <label className="text-xs text-gray-400 mb-1 block">비율(%)</label>
+                                    <input type="number" value={editAreaModal.weight} onChange={e => { const weight = Number(e.target.value); setEditAreaModal({ ...editAreaModal, weight }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { weight }); }} className="w-full bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2 text-center" />
+                                </div>
+                            </div>
+
+                            {/* 성취 기준 */}
+                            <div>
+                                <label className="text-xs text-gray-400 mb-1 block">성취 기준</label>
+                                <textarea value={editField.achievementStandard} onChange={e => { setEditField({ ...editField, achievementStandard: e.target.value }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { achievementStandard: e.target.value }); }}
+                                    placeholder="예: [건해 01-02] 건축 제도에 사용되는 선과 글자를 제도 규칙 작성 방법에 맞게 쓸 수 있다."
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-2 resize-none h-20" />
+                            </div>
+
+                            {/* 평가 요소 (체크리스트용 문항) */}
+                            <div>
+                                <label className="text-xs text-gray-400 mb-2 block">평가 요소 <span className="text-gray-500">(체크리스트 채점 시 각 항목을 Y/N 체크)</span></label>
+                                <div className="space-y-1.5 mb-2">
+                                    {(editAreaModal.assessmentElements || []).map((el, i) => (
+                                        <div key={i} className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/10 group">
+                                            <span className="text-xs text-purple-400 font-mono w-5 flex-shrink-0">▪</span>
+                                            <span className="text-xs text-gray-200 flex-1">{el}</span>
+                                            <button onClick={() => { const els = editAreaModal.assessmentElements.filter((_, idx) => idx !== i); setEditAreaModal({ ...editAreaModal, assessmentElements: els }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { assessmentElements: els }); }} className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><span className="material-symbols-outlined text-sm">close</span></button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2">
+                                    <input value={editField.newElement} onChange={e => setEditField({ ...editField, newElement: e.target.value })} placeholder="예: 도면의 중심을 작도하여 찾아낼 수 있는가?" className="flex-1 bg-white/5 border border-white/10 rounded-lg text-sm text-white px-3 py-1.5"
+                                        onKeyDown={e => { if (e.key === 'Enter' && editField.newElement.trim()) { const els = [...(editAreaModal.assessmentElements || []), editField.newElement.trim()]; setEditAreaModal({ ...editAreaModal, assessmentElements: els }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { assessmentElements: els }); setEditField({ ...editField, newElement: '' }); } }} />
+                                    <button onClick={() => { if (!editField.newElement.trim()) return; const els = [...(editAreaModal.assessmentElements || []), editField.newElement.trim()]; setEditAreaModal({ ...editAreaModal, assessmentElements: els }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { assessmentElements: els }); setEditField({ ...editField, newElement: '' }); }}
+                                        className="px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-xs font-medium hover:bg-purple-500/30">추가</button>
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-1.5">💡 평가 요소 수 = 체크리스트 항목 수. 배점 자동 생성에 사용됩니다.</p>
+                            </div>
+
+                            {/* 평가 방법 */}
+                            <div>
+                                <label className="text-xs text-gray-400 mb-2 block">평가 방법</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {ASSESSMENT_METHODS.map(method => {
+                                        const isChecked = (editAreaModal.assessmentMethods || []).includes(method);
+                                        return (
+                                            <button key={method} onClick={() => {
+                                                const methods = isChecked ? editAreaModal.assessmentMethods.filter(m => m !== method) : [...(editAreaModal.assessmentMethods || []), method];
+                                                setEditAreaModal({ ...editAreaModal, assessmentMethods: methods });
+                                                updatePerformanceArea(selectedCourseId, editAreaModal.id, { assessmentMethods: methods });
+                                            }} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${isChecked ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-500/50' : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10'}`}>
+                                                {isChecked && <span className="mr-1">✓</span>}{method}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* 채점 모드 선택 */}
+                            <div>
+                                <label className="text-xs text-gray-400 mb-2 block">채점 모드</label>
+                                <div className="flex gap-2">
+                                    <button onClick={() => { setEditAreaModal({ ...editAreaModal, scoringMode: 'direct' }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringMode: 'direct' }); }}
+                                        className={`flex-1 px-4 py-3 rounded-xl text-xs font-medium transition-all flex flex-col items-center gap-1 ${(editAreaModal.scoringMode || 'direct') === 'direct' ? 'bg-admin-primary/20 text-admin-primary ring-2 ring-admin-primary/50' : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10'}`}>
+                                        <span className="material-symbols-outlined text-lg">touch_app</span>
+                                        <span>직접 입력</span>
+                                        <span className="text-[10px] text-gray-500">배점을 직접 선택</span>
+                                    </button>
+                                    <button onClick={() => { setEditAreaModal({ ...editAreaModal, scoringMode: 'checklist' }); updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringMode: 'checklist' }); }}
+                                        className={`flex-1 px-4 py-3 rounded-xl text-xs font-medium transition-all flex flex-col items-center gap-1 ${editAreaModal.scoringMode === 'checklist' ? 'bg-emerald-500/20 text-emerald-400 ring-2 ring-emerald-500/50' : 'bg-white/5 text-gray-400 hover:bg-white/10 border border-white/10'}`}>
+                                        <span className="material-symbols-outlined text-lg">checklist</span>
+                                        <span>체크리스트</span>
+                                        <span className="text-[10px] text-gray-500">평가요소 Y/N → 자동 산출</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 채점 기준 & 배점 */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="text-xs text-gray-400">채점 기준 & 배점</label>
+                                    {(editAreaModal.assessmentElements || []).length > 0 && (
+                                        <button onClick={() => {
+                                            const count = (editAreaModal.assessmentElements || []).length;
+                                            const maxScore = editAreaModal.weight || 30;
+                                            const minScoreBase = Math.round(maxScore / count);
+                                            const levels = autoGenerateScoring(count, maxScore, minScoreBase);
+                                            setEditAreaModal({ ...editAreaModal, scoringLevels: levels });
+                                            updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringLevels: levels });
+                                        }} className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-lg text-[10px] font-medium hover:bg-emerald-500/30 flex items-center gap-1">
+                                            <span className="material-symbols-outlined text-xs">auto_fix_high</span>
+                                            배점 자동 생성 ({(editAreaModal.assessmentElements || []).length}개 기준)
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="space-y-2">
+                                    {(editAreaModal.scoringLevels || []).map(lv => (
+                                        <div key={lv.id} className="flex items-center gap-2 bg-white/5 rounded-lg p-2.5 border border-white/10">
+                                            <input value={lv.label} onChange={e => {
+                                                const levels = editAreaModal.scoringLevels.map(l => l.id === lv.id ? { ...l, label: e.target.value } : l);
+                                                setEditAreaModal({ ...editAreaModal, scoringLevels: levels });
+                                                updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringLevels: levels });
+                                            }} className="w-20 bg-white/10 border-none rounded text-xs text-white px-2 py-1 text-center font-bold" />
+                                            <input value={lv.description} onChange={e => {
+                                                const levels = editAreaModal.scoringLevels.map(l => l.id === lv.id ? { ...l, description: e.target.value } : l);
+                                                setEditAreaModal({ ...editAreaModal, scoringLevels: levels });
+                                                updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringLevels: levels });
+                                            }} className="flex-1 bg-white/5 border border-white/10 rounded text-xs text-white px-2 py-1" placeholder="설명" />
+                                            <input type="number" value={lv.score} onChange={e => {
+                                                const levels = editAreaModal.scoringLevels.map(l => l.id === lv.id ? { ...l, score: Number(e.target.value) } : l);
+                                                setEditAreaModal({ ...editAreaModal, scoringLevels: levels });
+                                                updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringLevels: levels });
+                                            }} className="w-16 bg-white/10 border-none rounded text-xs text-white px-2 py-1 text-center" />
+                                            <span className="text-xs text-gray-500">점</span>
+                                            <button onClick={() => {
+                                                const levels = editAreaModal.scoringLevels.filter(l => l.id !== lv.id);
+                                                setEditAreaModal({ ...editAreaModal, scoringLevels: levels });
+                                                updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringLevels: levels });
+                                            }} className="text-gray-500 hover:text-red-400"><span className="material-symbols-outlined text-sm">close</span></button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => {
+                                    const newLevel = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: '', description: '', score: 0 };
+                                    const levels = [...(editAreaModal.scoringLevels || []), newLevel];
+                                    setEditAreaModal({ ...editAreaModal, scoringLevels: levels });
+                                    updatePerformanceArea(selectedCourseId, editAreaModal.id, { scoringLevels: levels });
+                                }} className="mt-2 px-3 py-1.5 bg-white/5 text-gray-400 rounded-lg text-xs font-medium hover:bg-white/10 flex items-center gap-1 border border-dashed border-white/10">
+                                    <span className="material-symbols-outlined text-sm">add</span>채점 기준 추가
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-4 border-t border-white/10 flex justify-end">
+                            <button onClick={() => setEditAreaModal(null)} className="px-6 py-2.5 bg-admin-primary text-white rounded-xl font-medium hover:bg-admin-primary/80">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
+
+
+
 
 function MarketplaceManagement() {
     const { shopItems, purchases, addShopItem, removeShopItem, updateShopItems, deliverPurchase } = useMarketplaceStore();
