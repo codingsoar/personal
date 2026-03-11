@@ -82,10 +82,32 @@ function autoGenerateScoring(criteriaCount, maxScore, step = 1) {
 }
 
 // 체크리스트 체크 개수에서 해당 배점 찾기
-function scoreFromCheckedCount(scoringLevels, checkedCount) {
-    const found = scoringLevels?.find(lv => lv.matchCount === checkedCount);
+function scoreFromCheckedCount(scoringLevels, checkedCount, criteriaCount = 0) {
+    if (!scoringLevels || scoringLevels.length === 0) return 0;
+
+    // 1) matchCount로 정확히 매칭
+    const found = scoringLevels.find(lv => lv.matchCount === checkedCount);
     if (found) return found.score;
-    return findNearestScore(scoringLevels, checkedCount);
+
+    // 배점을 내림차순 정렬 (최고점 → 최저점)
+    const sorted = [...scoringLevels].sort((a, b) => b.score - a.score);
+
+    // 2) 배점 레벨 수 = 평가요소 수 + 1 이면 직접 인덱싱
+    //    예: 8개 요소 → 9개 레벨: sorted[0]=30(8개), sorted[1]=27(7개), ..., sorted[8]=6(0개)
+    if (criteriaCount > 0 && sorted.length === criteriaCount + 1) {
+        const idx = criteriaCount - checkedCount; // 8-7=1, 8-6=2, 8-0=8
+        return sorted[Math.max(0, Math.min(idx, sorted.length - 1))].score;
+    }
+
+    // 3) 레벨 수가 다른 경우, 비율 매핑
+    if (criteriaCount > 0 && sorted.length > 1) {
+        const idx = Math.floor((criteriaCount - checkedCount) / criteriaCount * (sorted.length - 1));
+        return sorted[Math.max(0, Math.min(idx, sorted.length - 1))].score;
+    }
+
+    // 4) fallback
+    if (checkedCount <= 0) return sorted[sorted.length - 1].score;
+    return sorted[0].score;
 }
 
 export { ASSESSMENT_METHODS, ACHIEVEMENT_LEVELS, findNearestScore, autoGenerateScoring, scoreFromCheckedCount, getAchievementGrade };
@@ -307,8 +329,7 @@ export const useAssessmentStore = create(
 
             getSessionScoresForArea: (courseId, areaId) => {
                 return get().sessionScores
-                    .filter(s => s.courseId === courseId && s.areaId === areaId)
-                    .sort((a, b) => a.sessionDate.localeCompare(b.sessionDate) || a.sessionLabel.localeCompare(b.sessionLabel));
+                    .filter(s => s.courseId === courseId && s.areaId === areaId);
             },
 
             // ── 학생의 영역별 최종 점수 산출 ──

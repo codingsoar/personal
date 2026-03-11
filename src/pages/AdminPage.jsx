@@ -2007,13 +2007,36 @@ const AssessmentsManagement = ({ courses, registeredStudents }) => {
                     </div>
 
                     <div className="bg-admin-card-dark p-6 rounded-2xl border border-white/10">
-                        <h4 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                            <span className="material-symbols-outlined text-purple-400">smart_toy</span>학생별 코멘트 & AI 과세특
-                        </h4>
+                        <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                                <span className="material-symbols-outlined text-emerald-400">forum</span>학생별 코멘트
+                            </h4>
+                            <button onClick={() => {
+                                const rows = [['학생', '코멘트']];
+                                enrolledStudents.forEach(student => {
+                                    const cmts = getStudentComments(selectedCourseId, student.studentId);
+                                    if (cmts.length > 0) {
+                                        const merged = cmts.map(c => c.comment).join(' ');
+                                        rows.push([student.name, merged]);
+                                    }
+                                });
+                                const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+                                const bom = '\uFEFF';
+                                const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `코멘트_${selectedCourse?.title || '수업'}_${new Date().toISOString().split('T')[0]}.csv`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                            }}
+                                className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-xs font-medium hover:bg-blue-500/30 flex items-center gap-1">
+                                <span className="material-symbols-outlined text-sm">download</span>엑셀 다운로드
+                            </button>
+                        </div>
                         <div className="space-y-4">
                             {enrolledStudents.map(student => {
                                 const cmts = getStudentComments(selectedCourseId, student.studentId);
-                                const report = generatedReports?.[selectedCourseId]?.[student.studentId];
                                 return (
                                     <div key={student.studentId} className="bg-white/5 rounded-xl p-4 border border-white/10">
                                         <div className="flex items-center justify-between mb-3">
@@ -2022,14 +2045,18 @@ const AssessmentsManagement = ({ courses, registeredStudents }) => {
                                                 <span className="font-medium text-white">{student.name}</span>
                                                 <span className="text-xs text-gray-500">코멘트 {cmts.length}건</span>
                                             </div>
-                                            <button onClick={() => handleGenerateReport(student.studentId)} disabled={aiLoading && aiStudentId === student.studentId}
-                                                className="px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-xs font-medium hover:bg-purple-500/30 flex items-center gap-1 disabled:opacity-50">
-                                                <span className="material-symbols-outlined text-sm">{aiLoading && aiStudentId === student.studentId ? 'hourglass_top' : 'auto_awesome'}</span>
-                                                {aiLoading && aiStudentId === student.studentId ? '생성 중...' : 'AI 과세특 생성'}
-                                            </button>
+                                            {cmts.length > 0 && (
+                                                <button onClick={() => {
+                                                    const text = cmts.map(c => `[${c.date}] ${c.comment}`).join('\n');
+                                                    navigator.clipboard.writeText(text);
+                                                }}
+                                                    className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-medium hover:bg-emerald-500/30 flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-sm">content_copy</span>코멘트 복사
+                                                </button>
+                                            )}
                                         </div>
-                                        {cmts.length > 0 && (
-                                            <div className="space-y-2 mb-3 max-h-32 overflow-y-auto">
+                                        {cmts.length > 0 ? (
+                                            <div className="space-y-2 max-h-40 overflow-y-auto">
                                                 {cmts.map(c => (
                                                     <div key={c.id} className="flex items-start gap-2 text-sm">
                                                         <span className="text-[10px] bg-white/10 text-gray-400 px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5">{c.date}</span>
@@ -2038,15 +2065,8 @@ const AssessmentsManagement = ({ courses, registeredStudents }) => {
                                                     </div>
                                                 ))}
                                             </div>
-                                        )}
-                                        {report && (
-                                            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl mt-2">
-                                                <div className="flex items-center justify-between mb-2">
-                                                    <span className="text-xs font-semibold text-purple-400 flex items-center gap-1"><span className="material-symbols-outlined text-sm">auto_awesome</span>AI 과세특</span>
-                                                    <button onClick={() => navigator.clipboard.writeText(report.text)} className="text-[10px] text-purple-400 hover:text-purple-300 flex items-center gap-1"><span className="material-symbols-outlined text-sm">content_copy</span>복사</button>
-                                                </div>
-                                                <p className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">{report.text}</p>
-                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-500">등록된 코멘트가 없습니다.</p>
                                         )}
                                     </div>
                                 );
@@ -2152,6 +2172,23 @@ const AssessmentsManagement = ({ courses, registeredStudents }) => {
                                                 {isChecklistMode && criteria.length > 0 ? (
                                                     /* 체크리스트 모드: 세로 정렬 */
                                                     <div className="space-y-2">
+                                                        <div className="flex gap-2 mb-1">
+                                                            <button onClick={() => {
+                                                                const allChecked = criteria.map((_, i) => i);
+                                                                const derivedScore = scoreFromCheckedCount(area.scoringLevels, allChecked.length, criteria.length);
+                                                                updateSessionStudentScore(activeSession.id, student.studentId, derivedScore, allChecked);
+                                                            }}
+                                                                className="flex-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all flex items-center justify-center gap-1">
+                                                                <span className="material-symbols-outlined text-sm">done_all</span>모두 체크
+                                                            </button>
+                                                            <button onClick={() => {
+                                                                const derivedScore = scoreFromCheckedCount(area.scoringLevels, 0, criteria.length);
+                                                                updateSessionStudentScore(activeSession.id, student.studentId, derivedScore, []);
+                                                            }}
+                                                                className="flex-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-gray-400 hover:bg-white/10 transition-all flex items-center justify-center gap-1">
+                                                                <span className="material-symbols-outlined text-sm">remove_done</span>모두 해제
+                                                            </button>
+                                                        </div>
                                                         {criteria.map((cr, idx) => {
                                                             const isChecked = checkedItems.includes(idx);
                                                             return (
@@ -2162,7 +2199,7 @@ const AssessmentsManagement = ({ courses, registeredStudents }) => {
                                                                     } else {
                                                                         newChecked = [...checkedItems, idx];
                                                                     }
-                                                                    const derivedScore = scoreFromCheckedCount(area.scoringLevels, newChecked.length);
+                                                                    const derivedScore = scoreFromCheckedCount(area.scoringLevels, newChecked.length, criteria.length);
                                                                     updateSessionStudentScore(activeSession.id, student.studentId, derivedScore, newChecked);
                                                                 }}
                                                                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left ${isChecked
@@ -3082,19 +3119,7 @@ export default function AdminPage() {
                         </h2>
                     </div>
                     <div className="flex items-center gap-6">
-                        {/* Search */}
-                        <div className="relative w-96 group">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-500 group-focus-within:text-admin-secondary transition-colors">
-                                <span className="material-symbols-outlined text-[20px]">search</span>
-                            </div>
-                            <input
-                                className="block w-full pl-10 pr-3 py-2.5 bg-admin-card-dark border-none rounded-xl text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-admin-secondary/50 transition-all"
-                                placeholder="Search learners, classes, or reports..."
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
+
                         {/* Actions */}
                         <div className="flex items-center gap-3">
                             <button onClick={() => setShowNotifPanel(!showNotifPanel)} className="relative p-2.5 rounded-xl bg-admin-card-dark hover:bg-white/5 text-gray-400 hover:text-white transition-colors">

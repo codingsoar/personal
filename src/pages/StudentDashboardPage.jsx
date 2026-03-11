@@ -56,6 +56,7 @@ export default function StudentDashboardPage() {
     const [selectedCourseId, setSelectedCourseId] = useState(null);
     const [selectedStageId, setSelectedStageId] = useState(null);
     const [selectedDifficulty, setSelectedDifficulty] = useState(null);
+    const [rankCourseId, setRankCourseId] = useState('all');
 
     // Sync tab changes with view resets (or open a specific course from shortcut)
     useEffect(() => {
@@ -369,10 +370,7 @@ export default function StudentDashboardPage() {
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">storefront</span>
                         <span className="hidden lg:block">Marketplace</span>
                     </button>
-                    <button onClick={() => navigate('/assessments')} className="flex items-center gap-4 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all group w-full text-left">
-                        <span className="material-symbols-outlined group-hover:scale-110 transition-transform">assignment</span>
-                        <span className="hidden lg:block">평가</span>
-                    </button>
+
                 </nav>
 
                 <div className="p-4 border-t border-accent-purple/20">
@@ -448,53 +446,98 @@ export default function StudentDashboardPage() {
                                 </div>
 
                                 {/* Star Leaderboard */}
-                                <div className="bg-white rounded-lg p-6 flex flex-col shadow-card border border-accent-yellow/30">
-                                    <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-                                        <span className="material-symbols-outlined text-accent-yellow">trophy</span>
-                                        별 랭킹
-                                    </h2>
-                                    <div className="flex flex-col gap-1 flex-1">
-                                        {starLeaderboard.slice(0, 5).map((student, idx) => {
-                                            const isMe = student.studentId === user?.studentId;
-                                            const rankColors = ['text-accent-yellow drop-shadow-[0_0_5px_rgba(254,228,64,0.8)]', 'text-slate-400', 'text-orange-700'];
-                                            return (
-                                                <div key={student.studentId} className={`flex items-center gap-3 p-2 rounded-xl transition-colors ${isMe ? 'bg-primary/5 border border-primary/20' : 'hover:bg-slate-50 cursor-pointer'}`}>
-                                                    <span className={`font-bold w-4 text-center ${rankColors[idx] || 'text-slate-400'}`}>{idx + 1}</span>
-                                                    <div className={`size-8 rounded-full bg-cover bg-center ${idx === 0 ? 'ring-2 ring-accent-yellow/50' : ''} ${isMe ? 'ring-2 ring-primary shadow-[0_0_10px_#00bbf9]' : ''}`} style={{ backgroundImage: `url('https://ui-avatars.com/api/?name=${encodeURIComponent(student.name)}&background=random')` }}></div>
-                                                    <div className="flex-1">
-                                                        <p className="text-sm font-bold">{isMe ? '나' : student.name}</p>
-                                                        <p className={`text-xs ${isMe ? 'text-primary' : 'text-slate-500'} flex items-center gap-1`}>
-                                                            <Star size={10} className="fill-amber-500 text-amber-500" />
-                                                            {student.stars}개
-                                                        </p>
-                                                    </div>
-                                                    {isMe && <span className="material-symbols-outlined text-primary text-sm">person</span>}
-                                                </div>
-                                            );
-                                        })}
-                                        {starLeaderboard.length === 0 && (
-                                            <div className="flex-1 flex items-center justify-center text-slate-400 text-sm py-8">
-                                                아직 데이터가 없습니다.
+                                {(() => {
+                                    const assignedCourseIds = user?.courseIds || [];
+                                    const myCoursesForRank = courses.filter(c => assignedCourseIds.includes(c.id));
+
+                                    // 수업별 별 수 계산 함수
+                                    const getStarsForCourse = (studentId, courseId) => {
+                                        const allProgress = useProgressStore.getState().progress;
+                                        const studentProgress = allProgress?.[studentId];
+                                        if (!studentProgress) return 0;
+                                        if (courseId === 'all') return totalStars[studentId] || 0;
+                                        const courseProgress = studentProgress[courseId];
+                                        if (!courseProgress) return 0;
+                                        let stars = 0;
+                                        Object.values(courseProgress).forEach(stage => {
+                                            if (stage.easy) stars++;
+                                            if (stage.normal) stars++;
+                                            if (stage.hard) stars++;
+                                        });
+                                        return stars;
+                                    };
+
+                                    // 같은 수업을 듣는 학생 필터링
+                                    const filteredStudents = rankCourseId === 'all'
+                                        ? registeredStudents
+                                        : registeredStudents.filter(s => s.courseIds?.includes(rankCourseId));
+
+                                    const courseLeaderboard = filteredStudents
+                                        .map(s => ({ studentId: s.studentId, name: s.name, stars: getStarsForCourse(s.studentId, rankCourseId) }))
+                                        .sort((a, b) => b.stars - a.stars);
+
+                                    const myRankInCourse = courseLeaderboard.findIndex(s => s.studentId === user?.studentId);
+                                    const myRankNum = myRankInCourse >= 0 ? myRankInCourse + 1 : '-';
+
+                                    return (
+                                        <div className="bg-white rounded-lg p-6 flex flex-col shadow-card border border-accent-yellow/30">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h2 className="font-bold text-lg flex items-center gap-2">
+                                                    <span className="material-symbols-outlined text-accent-yellow">trophy</span>
+                                                    별 랭킹
+                                                </h2>
+                                                <select value={rankCourseId} onChange={e => setRankCourseId(e.target.value)}
+                                                    className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-slate-600 font-medium cursor-pointer">
+                                                    <option value="all">전체</option>
+                                                    {myCoursesForRank.map(c => (
+                                                        <option key={c.id} value={c.id}>{c.name || c.title}</option>
+                                                    ))}
+                                                </select>
                                             </div>
-                                        )}
-                                        {typeof myRank === 'number' && myRank > 5 && (
-                                            <>
-                                                <div className="h-px bg-slate-200 my-2"></div>
-                                                <div className="flex items-center gap-3 p-2 rounded-xl bg-primary/5 border border-primary/20">
-                                                    <span className="font-bold text-primary w-4 text-center">{myRank}</span>
-                                                    <div className="size-8 rounded-full bg-cover bg-center ring-2 ring-primary shadow-[0_0_10px_#00bbf9]" style={{ backgroundImage: `url('https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Me')}&background=random')` }}></div>
-                                                    <div className="flex-1">
-                                                        <p className="text-sm font-bold">나</p>
-                                                        <p className="text-xs text-primary flex items-center gap-1">
-                                                            <Star size={10} className="fill-amber-500 text-amber-500" />
-                                                            {myStars}개
-                                                        </p>
+                                            <div className="flex flex-col gap-1 flex-1">
+                                                {courseLeaderboard.slice(0, 5).map((student, idx) => {
+                                                    const isMe = student.studentId === user?.studentId;
+                                                    const rankColors = ['text-accent-yellow drop-shadow-[0_0_5px_rgba(254,228,64,0.8)]', 'text-slate-400', 'text-orange-700'];
+                                                    return (
+                                                        <div key={student.studentId} className={`flex items-center gap-3 p-2 rounded-xl transition-colors ${isMe ? 'bg-primary/5 border border-primary/20' : 'hover:bg-slate-50 cursor-pointer'}`}>
+                                                            <span className={`font-bold w-4 text-center ${rankColors[idx] || 'text-slate-400'}`}>{idx + 1}</span>
+                                                            <div className={`size-8 rounded-full bg-cover bg-center ${idx === 0 ? 'ring-2 ring-accent-yellow/50' : ''} ${isMe ? 'ring-2 ring-primary shadow-[0_0_10px_#00bbf9]' : ''}`} style={{ backgroundImage: `url('https://ui-avatars.com/api/?name=${encodeURIComponent(student.name)}&background=random')` }}></div>
+                                                            <div className="flex-1">
+                                                                <p className="text-sm font-bold">{isMe ? '나' : student.name}</p>
+                                                                <p className={`text-xs ${isMe ? 'text-primary' : 'text-slate-500'} flex items-center gap-1`}>
+                                                                    <Star size={10} className="fill-amber-500 text-amber-500" />
+                                                                    {student.stars}개
+                                                                </p>
+                                                            </div>
+                                                            {isMe && <span className="material-symbols-outlined text-primary text-sm">person</span>}
+                                                        </div>
+                                                    );
+                                                })}
+                                                {courseLeaderboard.length === 0 && (
+                                                    <div className="flex-1 flex items-center justify-center text-slate-400 text-sm py-8">
+                                                        아직 데이터가 없습니다.
                                                     </div>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
+                                                )}
+                                                {typeof myRankNum === 'number' && myRankNum > 5 && (
+                                                    <>
+                                                        <div className="h-px bg-slate-200 my-2"></div>
+                                                        <div className="flex items-center gap-3 p-2 rounded-xl bg-primary/5 border border-primary/20">
+                                                            <span className="font-bold text-primary w-4 text-center">{myRankNum}</span>
+                                                            <div className="size-8 rounded-full bg-cover bg-center ring-2 ring-primary shadow-[0_0_10px_#00bbf9]" style={{ backgroundImage: `url('https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Me')}&background=random')` }}></div>
+                                                            <div className="flex-1">
+                                                                <p className="text-sm font-bold">나</p>
+                                                                <p className="text-xs text-primary flex items-center gap-1">
+                                                                    <Star size={10} className="fill-amber-500 text-amber-500" />
+                                                                    {getStarsForCourse(user?.studentId, rankCourseId)}개
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </section>
 
                             {/* Class Shortcuts */}

@@ -10,7 +10,7 @@ import ProfilePage from './pages/ProfilePage';
 import StudentProfilePage from './pages/StudentProfilePage';
 import MarketplacePage from './pages/MarketplacePage';
 import AdminPage from './pages/AdminPage';
-import StudentAssessmentsPage from './pages/StudentAssessmentsPage';
+
 
 function ProtectedRoute({ children, adminOnly }) {
   const { user } = useAuthStore();
@@ -38,7 +38,7 @@ export default function App() {
             <Route path="/student-profile" element={<ProtectedRoute><StudentProfilePage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/marketplace" element={<ProtectedRoute><MarketplacePage /></ProtectedRoute>} />
-            <Route path="/assessments" element={<ProtectedRoute><StudentAssessmentsPage /></ProtectedRoute>} />
+
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
           </Routes>

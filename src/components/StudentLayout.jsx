@@ -63,16 +63,7 @@ export default function StudentLayout({ children, activeTab: propActiveTab }) {
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">storefront</span>
                         <span className="hidden lg:block">Marketplace</span>
                     </button>
-                    <button
-                        onClick={() => navigate('/assessments')}
-                        className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-all group w-full text-left ${activeTab === 'assessments'
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
-                            }`}
-                    >
-                        <span className="material-symbols-outlined group-hover:scale-110 transition-transform">assignment</span>
-                        <span className="hidden lg:block">평가</span>
-                    </button>
+
                 </nav>
 
                 <div className="p-4 border-t border-accent-purple/20">
