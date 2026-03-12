@@ -11,11 +11,11 @@ export default function StudentDashboardPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, logout, registeredStudents } = useAuthStore();
-    const { getStudentProgress, totalStars } = useProgressStore();
+    const { getStudentProgress, totalStars, getStudentReflections } = useProgressStore();
     const { courses } = useStageStore();
     const activeTab = useMemo(() => {
         const tab = new URLSearchParams(location.search).get('tab');
-        return tab === 'myClass' ? 'myClass' : 'dashboard';
+        return ['dashboard', 'myClass', 'reflection'].includes(tab) ? tab : 'dashboard';
     }, [location.search]);
 
     const myStars = totalStars[user?.studentId] || 0;
@@ -108,16 +108,56 @@ export default function StudentDashboardPage() {
     // --- Mission Logic ---
     const { completeMission, isMissionCompleted, addSubmission } = useProgressStore();
     const [showCelebration, setShowCelebration] = useState(false);
+    const [showReflectionModal, setShowReflectionModal] = useState(false);
+    const [reflectionText, setReflectionText] = useState('');
+    const [reflectionError, setReflectionError] = useState('');
+    const reflectionEntries = useMemo(
+        () => (user?.studentId ? getStudentReflections(user.studentId) : []),
+        [getStudentReflections, user?.studentId, totalStars]
+    );
 
-    const handleMissionComplete = () => {
+    const finalizeMissionComplete = (reflection) => {
         if (!user?.studentId || !selectedCourseId || !selectedStageId || !selectedDifficulty) return;
         const alreadyDone = isMissionCompleted(user.studentId, selectedCourseId, selectedStageId, selectedDifficulty);
         if (!alreadyDone) {
-            completeMission(user.studentId, selectedCourseId, selectedStageId, selectedDifficulty);
+            completeMission(user.studentId, selectedCourseId, selectedStageId, selectedDifficulty, {
+                reflection,
+                missionTitle: selectedMission?.title || '',
+                courseTitle: selectedCourse?.title || '',
+                stageTitle: selectedStage?.title || '',
+            });
             setShowCelebration(true);
         } else {
             handleBackToMap();
         }
+    };
+
+    const handleMissionComplete = () => {
+        if (!user?.studentId || !selectedCourseId || !selectedStageId || !selectedDifficulty) return;
+        const alreadyDone = isMissionCompleted(user.studentId, selectedCourseId, selectedStageId, selectedDifficulty);
+        if (alreadyDone) {
+            handleBackToMap();
+            return;
+        }
+        setReflectionText('');
+        setReflectionError('');
+        setShowReflectionModal(true);
+    };
+
+    const closeReflectionModal = () => {
+        setShowReflectionModal(false);
+        setReflectionText('');
+        setReflectionError('');
+    };
+
+    const submitReflectionAndComplete = () => {
+        const trimmedReflection = reflectionText.trim();
+        if (!trimmedReflection) {
+            setReflectionError('한 문장 성찰을 입력해주세요.');
+            return;
+        }
+        finalizeMissionComplete(trimmedReflection);
+        closeReflectionModal();
     };
 
     const handlePracticeSubmit = (file) => {
@@ -432,6 +472,19 @@ export default function StudentDashboardPage() {
                         <span className="hidden lg:block">My Class</span>
                         <span className="hidden lg:flex ml-auto bg-accent-pink text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(241,91,181,0.5)]">{courses.length}</span>
                     </button>
+                    <button
+                        onClick={() => navigate('/dashboard?tab=reflection')}
+                        className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-all group w-full text-left ${activeTab === 'reflection'
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            }`}
+                    >
+                        <span className="material-symbols-outlined group-hover:scale-110 transition-transform">edit_note</span>
+                        <span className="hidden lg:block">Reflection</span>
+                        <span className="hidden lg:flex ml-auto bg-primary text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                            {reflectionEntries.length}
+                        </span>
+                    </button>
                     <button onClick={() => navigate('/marketplace')} className="flex items-center gap-4 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all group w-full text-left">
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">storefront</span>
                         <span className="hidden lg:block">Marketplace</span>
@@ -674,7 +727,7 @@ export default function StudentDashboardPage() {
                                 )}
                             </section>
                         </>
-                    ) : (
+                    ) : activeTab === 'myClass' ? (
                         <section className="space-y-6">
                             {currentView === 'list' && (
                                 <>
@@ -879,7 +932,80 @@ export default function StudentDashboardPage() {
                                     {selectedDifficulty === 'normal' && <TutorialView mission={selectedMission} onComplete={handleMissionComplete} />}
                                     {selectedDifficulty === 'hard' && <PracticeView mission={selectedMission} onSubmit={handlePracticeSubmit} />}
 
+                                    <Modal isOpen={showReflectionModal} onClose={closeReflectionModal} placement="center" backdrop="blur">
+                                        <ModalContent>
+                                            <ModalBody className="py-8 space-y-4">
+                                                <div className="space-y-1">
+                                                    <h2 className="text-2xl font-bold text-slate-900">Reflection</h2>
+                                                    <p className="text-slate-500 text-sm">오늘 배운 것 또는 어려웠던 점을 한 문장으로 남겨주세요.</p>
+                                                </div>
+                                                <textarea
+                                                    value={reflectionText}
+                                                    onChange={(e) => {
+                                                        setReflectionText(e.target.value);
+                                                        if (reflectionError) setReflectionError('');
+                                                    }}
+                                                    maxLength={200}
+                                                    rows={4}
+                                                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                                    placeholder="예: 개념은 이해했지만 실제 과제에 적용하는 과정은 아직 어려웠다."
+                                                />
+                                                <div className="flex items-center justify-between text-xs text-slate-400">
+                                                    <span>{reflectionError ? <span className="text-red-500">{reflectionError}</span> : '짧고 구체적으로 적어보세요.'}</span>
+                                                    <span>{reflectionText.length}/200</span>
+                                                </div>
+                                                <div className="flex justify-end gap-2">
+                                                    <Button variant="flat" onPress={closeReflectionModal}>취소</Button>
+                                                    <Button className="font-semibold text-white bg-primary" onPress={submitReflectionAndComplete}>성찰 저장</Button>
+                                                </div>
+                                            </ModalBody>
+                                        </ModalContent>
+                                    </Modal>
                                     <CelebrationModal isOpen={showCelebration} onClose={() => { setShowCelebration(false); handleBackToMap(); }} />
+                                </div>
+                            )}
+                        </section>
+                    ) : (
+                        <section className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-bold">Reflection</h2>
+                                    <p className="text-slate-500 text-sm mt-1">미션을 마친 뒤 작성한 성찰 문장을 다시 확인해보세요.</p>
+                                </div>
+                                <div className="hidden sm:flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl shadow-sm border border-slate-100">
+                                    <span className="material-symbols-outlined text-primary text-sm">history_edu</span>
+                                    <span className="text-sm font-bold text-slate-700">{reflectionEntries.length}개의 기록</span>
+                                </div>
+                            </div>
+
+                            {reflectionEntries.length > 0 ? (
+                                <div className="space-y-4 pt-2">
+                                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                    {reflectionEntries.map((entry, index) => (
+                                        <div key={`${entry.timestamp}-${index}`} className="bg-white rounded-2xl border border-accent-purple/20 shadow-card p-5 space-y-4 hover:shadow-lg transition-shadow">
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="space-y-2">
+                                                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                                                        {entry.courseTitle && <span className="rounded-full bg-primary/10 px-2.5 py-1 text-primary font-medium">{entry.courseTitle}</span>}
+                                                        {entry.stageTitle && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 font-medium">{entry.stageTitle}</span>}
+                                                        {entry.difficulty && <span className="rounded-full bg-accent-pink/10 px-2.5 py-1 text-accent-pink font-medium capitalize">{entry.difficulty}</span>}
+                                                    </div>
+                                                    {entry.missionTitle && <p className="text-base font-bold text-slate-800">{entry.missionTitle}</p>}
+                                                </div>
+                                                <span className="text-xs text-slate-400 shrink-0">{new Date(entry.timestamp).toLocaleString('ko-KR')}</span>
+                                            </div>
+                                            <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                                                <p className="text-slate-700 leading-7">"{entry.reflection}"</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-white rounded-2xl border border-accent-purple/20 p-12 text-center text-slate-500 shadow-card">
+                                    <span className="material-symbols-outlined text-5xl mb-4 block text-slate-300">edit_note</span>
+                                    <p className="font-medium">아직 작성한 성찰이 없어요.</p>
+                                    <p className="text-sm mt-1">미션을 완료하고 성찰을 저장하면 이곳에서 다시 볼 수 있습니다.</p>
                                 </div>
                             )}
                         </section>

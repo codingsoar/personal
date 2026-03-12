@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useStageStore } from '../stores/useStageStore';
+import { useProgressStore } from '../stores/useProgressStore';
 
 export default function StudentLayout({ children, activeTab: propActiveTab }) {
     const navigate = useNavigate();
@@ -10,6 +11,9 @@ export default function StudentLayout({ children, activeTab: propActiveTab }) {
 
     const assignedCourseIds = user?.courseIds || [];
     const myClasses = courses.filter(c => assignedCourseIds.includes(c.id));
+
+    const { getStudentReflections } = useProgressStore();
+    const reflectionEntries = user?.studentId ? getStudentReflections(user.studentId) : [];
 
     // Determine active tab from prop or pathname
     const activeTab = propActiveTab || (() => {
@@ -52,6 +56,19 @@ export default function StudentLayout({ children, activeTab: propActiveTab }) {
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform">menu_book</span>
                         <span className="hidden lg:block">My Class</span>
                         <span className="hidden lg:flex ml-auto bg-accent-pink text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-[0_0_10px_rgba(241,91,181,0.5)]">{myClasses.length}</span>
+                    </button>
+                    <button
+                        onClick={() => navigate('/dashboard?tab=reflection')}
+                        className={`flex items-center gap-4 px-4 py-3 rounded-xl transition-all group w-full text-left ${activeTab === 'reflection'
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                            }`}
+                    >
+                        <span className="material-symbols-outlined group-hover:scale-110 transition-transform">edit_note</span>
+                        <span className="hidden lg:block">Reflection</span>
+                        <span className="hidden lg:flex ml-auto bg-primary text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                            {reflectionEntries.length}
+                        </span>
                     </button>
                     <button
                         onClick={() => navigate('/marketplace')}

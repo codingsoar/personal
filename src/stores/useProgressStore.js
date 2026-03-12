@@ -10,9 +10,12 @@ export const useProgressStore = create(
             totalStars: {},
             // [{ studentId, stageId, missionId, fileName, fileData, status: 'pending'|'approved'|'rejected', feedback, timestamp }]
             submissions: [],
+            // [{ studentId, courseId, stageId, difficulty, reflection, missionTitle, courseTitle, stageTitle, timestamp }]
+            reflections: [],
 
             getStudentProgress: (studentId, courseId) => {
                 return get().progress?.[studentId]?.[courseId] || {};
+
             },
 
             getStudentStars: (studentId) => {
@@ -35,19 +38,26 @@ export const useProgressStore = create(
                 return get().isStageComplete(studentId, courseId, prevStage.id);
             },
 
-            completeMission: (studentId, courseId, stageId, difficulty) => {
+            completeMission: (studentId, courseId, stageId, difficulty, reflectionEntry = null) => {
                 set(state => {
                     const newProgress = { ...state.progress };
-                    if (!newProgress[studentId]) newProgress[studentId] = {};
-                    if (!newProgress[studentId][courseId]) newProgress[studentId][courseId] = {};
-                    if (!newProgress[studentId][courseId][stageId])
-                        newProgress[studentId][courseId][stageId] = { easy: false, normal: false, hard: false };
+                    
+                    // Deep copy nested objects to avoid mutating current state
+                    newProgress[studentId] = { ...(newProgress[studentId] || {}) };
+                    newProgress[studentId][courseId] = { ...(newProgress[studentId][courseId] || {}) };
+                    newProgress[studentId][courseId][stageId] = { 
+                        ...(newProgress[studentId][courseId][stageId] || { easy: false, normal: false, hard: false }) 
+                    };
 
                     if (!newProgress[studentId][courseId][stageId][difficulty]) {
                         newProgress[studentId][courseId][stageId][difficulty] = true;
                         const newTotalStars = { ...state.totalStars };
                         newTotalStars[studentId] = (newTotalStars[studentId] || 0) + 1;
-                        return { progress: newProgress, totalStars: newTotalStars };
+                        const existingReflections = state.reflections || [];
+                        const nextReflections = reflectionEntry
+                            ? [...existingReflections, { ...reflectionEntry, studentId, courseId, stageId, difficulty, timestamp: Date.now() }]
+                            : existingReflections;
+                        return { progress: newProgress, totalStars: newTotalStars, reflections: nextReflections };
                     }
                     return { progress: newProgress };
                 });
@@ -73,6 +83,12 @@ export const useProgressStore = create(
                 return get().submissions.filter(s => s.status === 'pending');
             },
 
+            getStudentReflections: (studentId) => {
+                return (get().reflections || [])
+                    .filter(reflection => reflection.studentId === studentId)
+                    .sort((a, b) => b.timestamp - a.timestamp);
+            },
+
             getAllStudentProgress: () => {
                 return get().progress;
             },
@@ -92,10 +108,21 @@ export const useProgressStore = create(
                 set({
                     progress: {},
                     totalStars: {},
-                    submissions: []
+                    submissions: [],
+                    reflections: []
                 });
             }
         }),
-        { name: 'starquest-progress' }
+        {
+            name: 'starquest-progress',
+            version: 2,
+            migrate: (persistedState) => {
+                if (!persistedState) return persistedState;
+                return {
+                    ...persistedState,
+                    reflections: persistedState.reflections || [],
+                };
+            }
+        }
     )
 );

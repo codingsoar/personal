@@ -531,3 +531,114 @@ Copy this block for every new entry:
 
 ### Notes
 - Existing sub-admin accounts are migrated to full access by default unless specific permissions are later turned off by the main admin.
+
+---
+
+## 2026-03-13 - Student Reflection Tab
+
+### Request
+- Add an English `Reflection` tab on the student page.
+- Let students review which class/stage their own reflection sentence was saved under.
+
+### Scope
+- `src/stores/useProgressStore.js` reflection persistence.
+- `src/pages/StudentDashboardPage.jsx` student mission completion and reflection tab UI.
+- No admin-facing reflection UI was added.
+
+### Implemented
+- Added persisted `reflections` storage and `getStudentReflections(studentId)` in the progress store.
+- Extended mission completion to optionally save one reflection sentence with course/stage/mission metadata.
+- Added a reflection input modal during first-time mission completion.
+- Added a `Reflection` sidebar tab on the student page.
+- Added a reflection list view showing the student's own saved entries with course, stage, difficulty, and timestamp.
+
+### Validation
+- `npm run build` -> Sandbox failed (`spawn EPERM`), escalated success
+
+### Files
+- `src/stores/useProgressStore.js`
+- `src/pages/StudentDashboardPage.jsx`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- Reflection entries are created only on first-time mission completion and displayed newest first.
+
+---
+
+## 2026-03-13 - Reflection UI Alignment + Save Fix
+
+### Request
+- Make the student `Reflection` tab match the surrounding student-page UI.
+- Check and fix the error that occurs when writing a reflection.
+
+### Scope
+- `src/pages/StudentDashboardPage.jsx` reflection tab presentation only.
+- `src/stores/useProgressStore.js` reflection persistence safety/migration.
+
+### Implemented
+- Added a reflection count badge to the student sidebar tab.
+- Restyled the reflection page into summary card + reflection cards consistent with the existing dashboard card system.
+- Hardened reflection persistence by defaulting missing legacy `reflections` arrays during save/read.
+- Added a persist migration so older saved progress state upgrades cleanly to include `reflections`.
+
+### Validation
+- `npm run build` -> Sandbox failed (`spawn EPERM`), escalated success
+
+### Files
+- `src/pages/StudentDashboardPage.jsx`
+- `src/stores/useProgressStore.js`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- The likely runtime failure was legacy persisted progress data missing the `reflections` array; save/read paths now guard against that case.
+
+---
+
+## 2026-03-13 - Reflection Modal State Cleanup
+
+### Request
+- Fix the problem in the reflection modal shown after finishing a stage.
+
+### Scope
+- `src/pages/StudentDashboardPage.jsx` reflection modal state handling only.
+- No persistence or admin-side changes.
+
+### Implemented
+- Added a dedicated `closeReflectionModal` handler to reset modal visibility, text, and validation state together.
+- Reused that handler for both cancel/close and successful save paths.
+- Prevented stale reflection text or error state from remaining when the modal is reopened.
+
+### Validation
+- `npm run build` -> Sandbox failed (`spawn EPERM`), escalated success
+
+### Files
+- `src/pages/StudentDashboardPage.jsx`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- This change was applied on top of the in-progress student reflection feature changes already present in the workspace.
+
+---
+
+## 2026-03-13 - Reflection Input Focus Fix
+
+### Request
+- Fix the reflection modal so typing does not flicker or drop input.
+
+### Scope
+- `src/pages/StudentDashboardPage.jsx` reflection modal rendering only.
+- No store or route changes.
+
+### Implemented
+- Removed the inline nested `ReflectionInputModal` component definition from inside `StudentDashboardPage`.
+- Rendered the reflection modal directly in the page JSX so the textarea no longer remounts on each keystroke.
+
+### Validation
+- `npm run build` -> Sandbox failed (`spawn EPERM`), escalated success
+
+### Files
+- `src/pages/StudentDashboardPage.jsx`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- Root cause was component identity churn causing the modal subtree to remount during controlled textarea updates.
