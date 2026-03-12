@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProgressStore } from '../stores/useProgressStore';
 import { useStageStore } from '../stores/useStageStore';
+import { useBadgeStore } from '../stores/useBadgeStore';
 import useThemeStore from '../stores/useThemeStore';
 import { useMarketplaceStore } from '../stores/useMarketplaceStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
@@ -12,7 +13,7 @@ import { useAssessmentStore, ASSESSMENT_METHODS, findNearestScore, ACHIEVEMENT_L
 import DashboardCalendar from '../components/DashboardCalendar';
 // --- Sub-components for Views ---
 
-const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, courseCompletion, courses, registeredStudents, progress, purchases }) => {
+const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, courseCompletion, courses, registeredStudents, progress, purchases, sessionScores }) => {
     // Compute per-course completion
     const courseStats = courses.map(course => {
         let totalDone = 0;
@@ -37,10 +38,53 @@ const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, cour
         { bg: 'bg-admin-green/20', text: 'text-admin-green' },
     ];
 
+    const sessionCalendarData = useMemo(() => {
+        const courseMetaById = Object.fromEntries(
+            courses.map(course => [
+                course.id,
+                {
+                    title: course.title || course.name || '수업',
+                    icon: course.icon || '📚',
+                },
+            ])
+        );
+        const uniqueSessions = new Map();
+
+        sessionScores.forEach(session => {
+            const sessionKey = `${session.courseId}:${session.sessionDate}:${session.sessionLabel}`;
+            if (!uniqueSessions.has(sessionKey)) {
+                const courseMeta = courseMetaById[session.courseId] || { title: '수업', icon: '📚' };
+                uniqueSessions.set(sessionKey, {
+                    id: sessionKey,
+                    date: session.sessionDate,
+                    label: session.sessionLabel,
+                    courseId: session.courseId,
+                    courseTitle: courseMeta.title,
+                    courseIcon: courseMeta.icon,
+                });
+            }
+        });
+
+        return Array.from(uniqueSessions.values())
+            .sort((a, b) => {
+                if (a.date !== b.date) return a.date.localeCompare(b.date);
+                const labelOrder = a.label.localeCompare(b.label, 'ko', { numeric: true, sensitivity: 'base' });
+                if (labelOrder !== 0) return labelOrder;
+                return a.courseTitle.localeCompare(b.courseTitle, 'ko', { sensitivity: 'base' });
+            })
+            .reduce((acc, session) => {
+                if (!acc[session.date]) {
+                    acc[session.date] = { sessions: [] };
+                }
+                acc[session.date].sessions.push(session);
+                return acc;
+            }, {});
+    }, [courses, sessionScores]);
+
     const recentPurchases = [...purchases].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
 
     return (
-        <div className="max-w-7xl mx-auto space-y-8">
+        <div className="w-full max-w-none mx-auto space-y-8">
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {/* Card 1 */}
@@ -101,15 +145,14 @@ const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, cour
             </div>
 
             {/* Calendar & Top Classes */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2">
-                    <DashboardCalendar />
-                </div>
-                <div className="bg-admin-card-dark rounded-2xl border border-white/5 p-6 flex flex-col">
+            <div>
+                <DashboardCalendar classData={sessionCalendarData} />
+            </div>
+            <div className="bg-admin-card-dark rounded-2xl border border-white/5 p-6 flex flex-col">
                     <div className="flex items-center justify-between mb-6">
                         <h3 className="text-lg font-bold text-white">수업별 진행률</h3>
                     </div>
-                    <div className="space-y-4 flex-1">
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                         {courseStats.length === 0 && (
                             <div className="flex-1 flex items-center justify-center text-gray-500 py-8">등록된 수업이 없습니다.</div>
                         )}
@@ -132,8 +175,6 @@ const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, cour
                         })}
                     </div>
                 </div>
-            </div>
-
             {/* Recent Activity */}
             <div className="bg-admin-card-dark rounded-2xl border border-white/5 overflow-hidden">
                 <div className="p-6 border-b border-white/5">
@@ -356,7 +397,12 @@ const LearnersManagement = ({ registeredStudents, onAddStudent, onDeleteStudent,
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [currentStudent, setCurrentStudent] = useState(null); // For editing
+    const [isBadgeModalOpen, setIsBadgeModalOpen] = useState(false);
+    const [currentStudent, setCurrentStudent] = useState(null); // For editing and viewing badges
+    
+    // Badge store selector
+    const getUnlockedBadges = useBadgeStore(state => state.getUnlockedBadges);
+    const allBadges = useBadgeStore(state => state.getAllBadges());
 
     const [openMenuId, setOpenMenuId] = useState(null);
     const [formData, setFormData] = useState({ name: '', studentId: '', password: '', grade: '1', admissionYear: new Date().getFullYear() });
@@ -423,6 +469,12 @@ const LearnersManagement = ({ registeredStudents, onAddStudent, onDeleteStudent,
             admissionYear: student.admissionYear || new Date().getFullYear()
         });
         setIsEditModalOpen(true);
+        setOpenMenuId(null);
+    };
+
+    const openBadgeModal = (student) => {
+        setCurrentStudent(student);
+        setIsBadgeModalOpen(true);
         setOpenMenuId(null);
     };
 
@@ -583,6 +635,13 @@ const LearnersManagement = ({ registeredStudents, onAddStudent, onDeleteStudent,
                                                     <span className="material-symbols-outlined text-[18px]">person_remove</span>
                                                     Remove Student
                                                 </button>
+                                                <button
+                                                    className="w-full text-left px-4 py-3 text-sm text-amber-400 hover:bg-amber-400/10 transition-colors flex items-center gap-2 border-t border-white/5"
+                                                    onClick={() => openBadgeModal(student)}
+                                                >
+                                                    <span className="material-symbols-outlined text-[18px]">hotel_class</span>
+                                                    View Badges
+                                                </button>
                                             </div>
                                         )}
                                     </td>
@@ -702,6 +761,61 @@ const LearnersManagement = ({ registeredStudents, onAddStudent, onDeleteStudent,
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* View Badges Modal */}
+            {isBadgeModalOpen && currentStudent && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+                    <div className="bg-admin-card-dark rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl border border-white/10 zoom-in-95 duration-200">
+                        <div className="p-6 border-b border-white/10 flex items-center justify-between bg-white/5 rounded-t-2xl">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-amber-500/20 rounded-lg">
+                                    <span className="material-symbols-outlined text-amber-400">workspace_premium</span>
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-white">{currentStudent.name}'s Badges</h3>
+                                    <p className="text-sm text-gray-400">{currentStudent.studentId} • Grade {currentStudent.grade || 1}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsBadgeModalOpen(false)} className="text-gray-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-2 rounded-xl">
+                                <span className="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto">
+                            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-4">
+                                {(() => {
+                                    const unlocked = getUnlockedBadges(currentStudent.studentId);
+                                    if (unlocked.length === 0) {
+                                        return (
+                                            <div className="col-span-full py-12 text-center text-gray-400">
+                                                <span className="material-symbols-outlined text-5xl mb-3 opacity-30">block</span>
+                                                <p>This student hasn't unlocked any badges yet.</p>
+                                            </div>
+                                        );
+                                    }
+                                    return unlocked.map(badge => (
+                                        <div key={badge.id} className="group relative flex flex-col items-center justify-center p-3 rounded-xl border border-amber-500/20 bg-gradient-to-br from-white/5 to-amber-500/10 hover:to-amber-500/20 transition-all shadow-sm">
+                                            <div className="text-3xl mb-2 drop-shadow-md group-hover:scale-110 transition-transform">{badge.emoji}</div>
+                                            <div className="text-[10px] font-bold text-center text-white line-clamp-1">{badge.name}</div>
+                                            
+                                            {/* Tooltip */}
+                                            <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 border border-white/10 text-white text-xs rounded py-1.5 px-3 z-10 pointer-events-none shadow-xl w-max max-w-[150px] text-center">
+                                                <div className="font-bold text-amber-300 mb-0.5">{badge.name}</div>
+                                                <div className="text-[10px] text-gray-300">{badge.desc}</div>
+                                            </div>
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
+                        </div>
+                        <div className="p-6 border-t border-white/10 flex justify-end bg-white/5 rounded-b-2xl">
+                            <button onClick={() => setIsBadgeModalOpen(false)} className="px-6 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 text-white transition-colors">
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -2979,10 +3093,14 @@ const SettingsManagement = () => {
 
 export default function AdminPage() {
     const navigate = useNavigate();
-    const { user, logout, registeredStudents, registerStudent, removeStudent, bulkRegisterStudents, updateStudent } = useAuthStore();
+    const { user, logout, registeredStudents, registerStudent, removeStudent, bulkRegisterStudents, updateStudent, subAdmins, addSubAdmin, removeSubAdmin, updateSubAdmin } = useAuthStore();
+    const sessionScores = useAssessmentStore(state => state.sessionScores);
     const { courses, addCourse, deleteCourse } = useStageStore();
     const { submissions, totalStars, progress } = useProgressStore();
-    const [currentView, setCurrentView] = useState('dashboard');
+    const isSubAdmin = user?.role === 'subadmin';
+    const isMainAdmin = user?.role === 'admin';
+    const visibleCourses = isSubAdmin ? courses.filter(c => (user.courseIds || []).includes(c.id)) : courses;
+    const [currentView, setCurrentView] = useState(isSubAdmin ? 'class' : 'dashboard');
     const [searchTerm, setSearchTerm] = useState('');
     const [showNotifPanel, setShowNotifPanel] = useState(false);
     const [notifTarget, setNotifTarget] = useState('all');
@@ -3024,14 +3142,14 @@ export default function AdminPage() {
                         <span className="material-symbols-outlined text-white text-2xl" style={{ fontVariationSettings: "'FILL' 1" }}>stadia_controller</span>
                     </div>
                     <div>
-                        <h1 className="text-white text-xl font-bold tracking-tight">ADMIN PAGE</h1>
-                        <p className="text-white/70 text-xs font-medium uppercase tracking-wider">Gamified Portal</p>
+                        <h1 className="text-white text-xl font-bold tracking-tight">{isSubAdmin ? 'SUB-ADMIN' : 'ADMIN PAGE'}</h1>
+                        <p className="text-white/70 text-xs font-medium uppercase tracking-wider">{user?.name || 'Gamified Portal'}</p>
                     </div>
                 </div>
 
                 <nav className="flex-1 px-4 py-4 flex flex-col gap-2">
-                    {/* Dashboard (Active) */}
-                    <button
+                    {/* Dashboard (Active) - admin only */}
+                    {isMainAdmin && <button
                         onClick={() => setCurrentView('dashboard')}
                         className={`flex items-center gap-3 px-4 py-3 rounded-lg w-full text-left transition-all group ${currentView === 'dashboard'
                             ? 'bg-admin-secondary shadow-lg shadow-admin-secondary/20'
@@ -3040,9 +3158,9 @@ export default function AdminPage() {
                     >
                         <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>dashboard</span>
                         <span className="text-white font-semibold">Dashboard</span>
-                    </button>
-                    {/* Learners */}
-                    <button
+                    </button>}
+                    {/* Learners - admin only */}
+                    {isMainAdmin && <button
                         onClick={() => setCurrentView('learners')}
                         className={`flex items-center gap-3 px-4 py-3 rounded-lg w-full text-left transition-all group ${currentView === 'learners'
                             ? 'bg-admin-secondary shadow-lg shadow-admin-secondary/20'
@@ -3051,7 +3169,7 @@ export default function AdminPage() {
                     >
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform text-white">school</span>
                         <span className={`font-medium ${currentView === 'learners' ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>Learners</span>
-                    </button>
+                    </button>}
                     {/* Class (Project Classes) */}
                     <button
                         onClick={() => setCurrentView('class')}
@@ -3074,8 +3192,8 @@ export default function AdminPage() {
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform text-white">quiz</span>
                         <span className={`font-medium ${currentView === 'assessments' ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>Assessments</span>
                     </button>
-                    {/* Marketplace */}
-                    <button
+                    {/* Marketplace - admin only */}
+                    {isMainAdmin && <button
                         onClick={() => setCurrentView('marketplace')}
                         className={`flex items-center gap-3 px-4 py-3 rounded-lg w-full text-left transition-all group ${currentView === 'marketplace'
                             ? 'bg-admin-secondary shadow-lg shadow-admin-secondary/20'
@@ -3084,9 +3202,20 @@ export default function AdminPage() {
                     >
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform text-white">storefront</span>
                         <span className={`font-medium ${currentView === 'marketplace' ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>Marketplace</span>
-                    </button>
-                    {/* Settings */}
-                    <button
+                    </button>}
+                    {/* Sub-Admin Management - admin only */}
+                    {isMainAdmin && <button
+                        onClick={() => setCurrentView('subadmins')}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-lg w-full text-left transition-all group ${currentView === 'subadmins'
+                            ? 'bg-admin-secondary shadow-lg shadow-admin-secondary/20'
+                            : 'hover:bg-white/10 text-white/80 hover:text-white'
+                            }`}
+                    >
+                        <span className="material-symbols-outlined group-hover:scale-110 transition-transform text-white">supervisor_account</span>
+                        <span className={`font-medium ${currentView === 'subadmins' ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>서브관리자</span>
+                    </button>}
+                    {/* Settings - admin only */}
+                    {isMainAdmin && <button
                         onClick={() => setCurrentView('settings')}
                         className={`flex items-center gap-3 px-4 py-3 rounded-lg w-full text-left transition-all group ${currentView === 'settings'
                             ? 'bg-admin-secondary shadow-lg shadow-admin-secondary/20'
@@ -3095,7 +3224,7 @@ export default function AdminPage() {
                     >
                         <span className="material-symbols-outlined group-hover:scale-110 transition-transform text-white">settings</span>
                         <span className={`font-medium ${currentView === 'settings' ? 'text-white' : 'text-white/80 group-hover:text-white'}`}>Settings</span>
-                    </button>
+                    </button>}
                 </nav>
 
                 <div className="p-4 mt-auto border-t border-white/5">
@@ -3264,6 +3393,7 @@ export default function AdminPage() {
                             registeredStudents={registeredStudents}
                             progress={progress}
                             purchases={purchases}
+                            sessionScores={sessionScores}
                         />
                     )}
                     {currentView === 'learners' && (

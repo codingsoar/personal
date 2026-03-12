@@ -4,16 +4,20 @@ import { Star, BookOpen } from 'lucide-react';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useProgressStore } from '../stores/useProgressStore';
 import { useStageStore } from '../stores/useStageStore';
+import { useBadgeStore } from '../stores/useBadgeStore';
 import StudentLayout from '../components/StudentLayout';
 import StudentHeaderActions from '../components/StudentHeaderActions';
 
 export default function StudentProfilePage() {
-    const navigate = useNavigate();
     const { user, registeredStudents } = useAuthStore();
     const { courses } = useStageStore();
     const { progress, totalStars } = useProgressStore();
+    const getUnlockedBadges = useBadgeStore(state => state.getUnlockedBadges);
+    const getAllBadges = useBadgeStore(state => state.getAllBadges);
 
     const studentStars = totalStars[user?.studentId] || 0;
+    const unlockedBadges = getUnlockedBadges(user?.studentId);
+    const allBadges = getAllBadges();
     const visibleCourses = courses;
 
     // Rank from leaderboard
@@ -103,6 +107,53 @@ export default function StudentProfilePage() {
                                         : 0}%
                                 </span>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* My Badges Section */}
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-bold text-slate-900 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="material-symbols-outlined text-amber-500">workspace_premium</span>
+                                나의 뱃지
+                            </div>
+                            <span className="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                                {unlockedBadges.length} / {allBadges.length}
+                            </span>
+                        </h3>
+                        
+                        <div className="bg-white rounded-xl p-6 border border-accent-yellow/20 shadow-card">
+                            {unlockedBadges.length === 0 ? (
+                                <div className="text-center py-8 text-slate-400">
+                                    <span className="material-symbols-outlined text-4xl mb-2 opacity-50">hotel_class</span>
+                                    <p>아직 획득한 뱃지가 없습니다.<br/>미션을 달성하고 첫 뱃지를 모아보세요!</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
+                                    {unlockedBadges.map(badge => (
+                                        <div key={badge.id} className="group relative flex flex-col items-center justify-center p-3 rounded-xl border border-primary/20 bg-gradient-to-br from-white to-primary/5 hover:to-primary/10 transition-all cursor-help shadow-sm hover:shadow-md">
+                                            <div className="text-4xl mb-2 drop-shadow-md group-hover:scale-110 transition-transform">{badge.emoji}</div>
+                                            <div className="text-xs font-bold text-center text-slate-800 line-clamp-1">{badge.name}</div>
+                                            <div className="text-[10px] text-center text-slate-500 mt-0.5 line-clamp-1">{badge.category}</div>
+                                            
+                                            {/* Tooltip */}
+                                            <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs rounded py-1.5 px-3 whitespace-nowrap z-10 pointer-events-none shadow-xl transform scale-95 group-hover:scale-100 origin-bottom">
+                                                <div className="font-bold text-amber-300 mb-0.5">{badge.name}</div>
+                                                <div>{badge.desc}</div>
+                                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    
+                                    {/* Locked Badges Placeholder (Show a few to tease) */}
+                                    {Array.from({ length: Math.min(5, allBadges.length - unlockedBadges.length) }).map((_, i) => (
+                                        <div key={`locked-${i}`} className="flex flex-col items-center justify-center p-3 rounded-xl border border-slate-100 bg-slate-50 opacity-50 grayscale">
+                                            <div className="text-3xl mb-2">🔒</div>
+                                            <div className="text-xs font-medium text-center text-slate-400">미획득</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
 

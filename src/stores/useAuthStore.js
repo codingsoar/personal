@@ -16,6 +16,7 @@ export const useAuthStore = create(
             user: null,
             isAdmin: false,
             registeredStudents: defaultStudents.map(normalizeStudent),
+            subAdmins: [],
 
             loginStudent: (studentId, password) => {
                 const students = get().registeredStudents;
@@ -31,6 +32,12 @@ export const useAuthStore = create(
                 const defaultAdmin = { adminId: 'admin', password: 'admin1234' };
                 if (adminId === defaultAdmin.adminId && password === defaultAdmin.password) {
                     set({ user: { adminId, name: '관리자', role: 'admin' }, isAdmin: true });
+                    return true;
+                }
+                // 서브관리자 로그인 확인
+                const sub = get().subAdmins.find(s => s.adminId === adminId && s.password === password);
+                if (sub) {
+                    set({ user: { adminId: sub.adminId, name: sub.name, role: 'subadmin', courseIds: sub.courseIds || [] }, isAdmin: true });
                     return true;
                 }
                 return false;
@@ -212,15 +219,44 @@ export const useAuthStore = create(
                     registeredStudents: state.registeredStudents.filter(s => s.studentId !== studentId)
                 }));
             },
+
+            // ═══════════════════════════════════════
+            // 서브관리자 관리
+            // ═══════════════════════════════════════
+            addSubAdmin: (adminId, password, name, courseIds) => {
+                if (!adminId || !password || !name) return { ok: false, reason: 'invalid_input' };
+                const existing = get().subAdmins.find(s => s.adminId === adminId);
+                if (existing) return { ok: false, reason: 'already_exists' };
+                if (adminId === 'admin') return { ok: false, reason: 'reserved_id' };
+                set(state => ({
+                    subAdmins: [...state.subAdmins, { adminId: adminId.trim(), password: password.trim(), name: name.trim(), courseIds: courseIds || [] }]
+                }));
+                return { ok: true };
+            },
+
+            removeSubAdmin: (adminId) => {
+                set(state => ({
+                    subAdmins: state.subAdmins.filter(s => s.adminId !== adminId)
+                }));
+            },
+
+            updateSubAdmin: (adminId, updates) => {
+                set(state => ({
+                    subAdmins: state.subAdmins.map(s =>
+                        s.adminId === adminId ? { ...s, ...updates } : s
+                    )
+                }));
+            },
         }),
         {
             name: 'starquest-auth',
-            version: 2,
+            version: 3,
             migrate: (persistedState) => {
                 if (!persistedState) return persistedState;
                 return {
                     ...persistedState,
                     registeredStudents: (persistedState.registeredStudents || []).map(normalizeStudent),
+                    subAdmins: persistedState.subAdmins || [],
                     user: persistedState.user?.role === 'student'
                         ? { ...persistedState.user, courseIds: Array.isArray(persistedState.user.courseIds) ? persistedState.user.courseIds : [] }
                         : persistedState.user,

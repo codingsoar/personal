@@ -10,12 +10,13 @@ import ProfilePage from './pages/ProfilePage';
 import StudentProfilePage from './pages/StudentProfilePage';
 import MarketplacePage from './pages/MarketplacePage';
 import AdminPage from './pages/AdminPage';
+import BadgeNotification from './components/BadgeNotification';
 
 
 function ProtectedRoute({ children, adminOnly }) {
   const { user } = useAuthStore();
   if (!user) return <Navigate to="/" />;
-  if (adminOnly && user.role !== 'admin') return <Navigate to="/dashboard" />;
+  if (adminOnly && user.role !== 'admin' && user.role !== 'subadmin') return <Navigate to="/dashboard" />;
   return children;
 }
 
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute adminOnly><AdminPage /></ProtectedRoute>} />
           </Routes>
+          <BadgeNotification />
         </BrowserRouter>
       </div>
     </HeroUIProvider>
