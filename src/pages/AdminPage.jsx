@@ -13,12 +13,13 @@ import { useAssessmentStore, ASSESSMENT_METHODS, ACHIEVEMENT_LEVELS, autoGenerat
 import DashboardCalendar from '../components/DashboardCalendar';
 // --- Sub-components for Views ---
 
-const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, courseCompletion, courses, registeredStudents, progress, purchases, sessionScores }) => {
+const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, courseCompletion, courses, registeredStudents, progress, purchases, sessionScores, onOpenCourseProgress }) => {
     // Compute per-course completion
     const courseStats = courses.map(course => {
+        const enrolledStudents = registeredStudents.filter(student => student.courseIds?.includes(course.id));
         let totalDone = 0;
         let totalPossible = 0;
-        registeredStudents.forEach(s => {
+        enrolledStudents.forEach(s => {
             course.stages.forEach(stage => {
                 const sp = progress?.[s.studentId]?.[course.id]?.[stage.id];
                 ['easy', 'normal', 'hard'].forEach(d => {
@@ -28,7 +29,7 @@ const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, cour
             });
         });
         const pct = totalPossible > 0 ? Math.round((totalDone / totalPossible) * 100) : 0;
-        return { ...course, pct, studentCount: registeredStudents.length };
+        return { ...course, pct, studentCount: enrolledStudents.length };
     }).sort((a, b) => b.pct - a.pct);
 
     const colorSets = [
@@ -159,7 +160,12 @@ const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, cour
                         {courseStats.map((cs, idx) => {
                             const color = colorSets[idx % colorSets.length];
                             return (
-                                <div key={cs.id} className="flex items-center gap-4 p-3 rounded-xl bg-background-dark border border-white/5 hover:border-admin-secondary/30 transition-colors group cursor-pointer">
+                                <button
+                                    key={cs.id}
+                                    type="button"
+                                    onClick={() => onOpenCourseProgress?.(cs.id)}
+                                    className="flex items-center gap-4 p-3 rounded-xl bg-background-dark border border-white/5 hover:border-admin-secondary/30 transition-colors group cursor-pointer text-left"
+                                >
                                     <div className={`w-10 h-10 rounded-lg ${color.bg} flex items-center justify-center ${color.text}`}>
                                         <span className="text-xl">{cs.icon || '📚'}</span>
                                     </div>
@@ -170,7 +176,7 @@ const DashboardOverview = ({ totalLearners, totalClasses, totalStarsIssued, cour
                                     <div className="text-right">
                                         <span className={`text-sm font-bold ${cs.pct >= 70 ? 'text-admin-green' : cs.pct >= 30 ? 'text-admin-yellow' : 'text-admin-pink'}`}>{cs.pct}%</span>
                                     </div>
-                                </div>
+                                </button>
                             );
                         })}
                     </div>
@@ -3164,6 +3170,203 @@ function MarketplaceManagement() {
     );
 }
 
+const CourseProgressManagement = ({ courses, registeredStudents, progress, isSubAdmin, accessibleCourseIds, selectedCourseId, onSelectCourse, onBackToDashboard }) => {
+    const isDark = useThemeStore(state => state.isDark);
+    const availableCourses = useMemo(() => {
+        if (!isSubAdmin) return courses;
+        const allowedCourseIds = new Set(accessibleCourseIds || []);
+        return courses.filter(course => allowedCourseIds.has(course.id));
+    }, [accessibleCourseIds, courses, isSubAdmin]);
+
+    const activeCourseId = availableCourses.some(course => course.id === selectedCourseId)
+        ? selectedCourseId
+        : (availableCourses[0]?.id || '');
+    const selectedCourse = availableCourses.find(course => course.id === activeCourseId) || null;
+
+    const enrolledStudents = useMemo(
+        () => registeredStudents.filter(student => student.courseIds?.includes(activeCourseId)),
+        [activeCourseId, registeredStudents]
+    );
+
+    const studentRows = useMemo(() => {
+        if (!selectedCourse) return [];
+        const totalMissions = selectedCourse.stages.length * 3;
+
+        return enrolledStudents.map(student => {
+            const courseProgress = progress?.[student.studentId]?.[selectedCourse.id] || {};
+            let completedMissions = 0;
+
+            const stageRows = selectedCourse.stages.map(stage => {
+                const stageProgress = courseProgress?.[stage.id] || {};
+                const completedCount = ['easy', 'normal', 'hard'].filter(level => stageProgress?.[level]).length;
+                completedMissions += completedCount;
+                return {
+                    id: stage.id,
+                    title: stage.title,
+                    completedCount,
+                    isComplete: completedCount === 3,
+                };
+            });
+
+            const completionRate = totalMissions > 0 ? Math.round((completedMissions / totalMissions) * 100) : 0;
+            return {
+                student,
+                completedMissions,
+                completionRate,
+                completedStages: stageRows.filter(stage => stage.isComplete).length,
+                totalStages: selectedCourse.stages.length,
+                stageRows,
+            };
+        }).sort((a, b) => {
+            if (b.completionRate !== a.completionRate) return b.completionRate - a.completionRate;
+            return a.student.name.localeCompare(b.student.name, 'ko');
+        });
+    }, [enrolledStudents, progress, selectedCourse]);
+
+    const averageProgress = studentRows.length > 0
+        ? Math.round(studentRows.reduce((sum, row) => sum + row.completionRate, 0) / studentRows.length)
+        : 0;
+    const fullyCompletedStudents = studentRows.filter(row => row.completionRate === 100).length;
+
+    if (availableCourses.length === 0) {
+        return (
+            <div className="max-w-6xl mx-auto space-y-6">
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <h3 className="text-2xl font-bold text-white">Course Progress</h3>
+                        <p className="text-gray-400 text-sm mt-1">수업별 학생 진행률을 확인합니다.</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onBackToDashboard}
+                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                    >
+                        <span className="material-symbols-outlined text-base">arrow_back</span>
+                        Dashboard
+                    </button>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-admin-card-dark p-10 text-center text-gray-400">
+                    조회할 수 있는 수업이 없습니다.
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="max-w-7xl mx-auto space-y-8">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                    <h3 className="text-2xl font-bold text-white">Course Progress</h3>
+                    <p className="text-gray-400 text-sm mt-1">수업별로 학생들의 미션 진행 상황을 확인합니다.</p>
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                    <div className="w-full sm:w-80">
+                        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Course</label>
+                        <select
+                            value={activeCourseId}
+                            onChange={event => onSelectCourse(event.target.value)}
+                            className={`w-full rounded-2xl border px-4 py-3 focus:outline-none focus:ring-2 focus:ring-admin-secondary ${isDark
+                                ? 'border-white/10 bg-admin-card-dark text-white'
+                                : 'border-slate-300 bg-white text-slate-900'
+                                }`}
+                        >
+                            {availableCourses.map(course => (
+                                <option
+                                    key={course.id}
+                                    value={course.id}
+                                    className={isDark ? 'bg-[#1e1e2e] text-white' : 'bg-white text-slate-900'}
+                                >
+                                    {course.title}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={onBackToDashboard}
+                        className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-gray-300 hover:bg-white/10 hover:text-white transition-colors"
+                    >
+                        <span className="material-symbols-outlined text-base">arrow_back</span>
+                        Dashboard
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-4">
+                <div className="rounded-3xl border border-white/10 bg-admin-card-dark p-6">
+                    <p className="text-sm text-gray-400">선택 과목</p>
+                    <p className="mt-2 text-2xl font-bold text-white">{selectedCourse?.title || '-'}</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-admin-card-dark p-6">
+                    <p className="text-sm text-gray-400">수강 학생</p>
+                    <p className="mt-2 text-2xl font-bold text-white">{enrolledStudents.length}</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-admin-card-dark p-6">
+                    <p className="text-sm text-gray-400">평균 진행률</p>
+                    <p className="mt-2 text-2xl font-bold text-white">{averageProgress}%</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-admin-card-dark p-6">
+                    <p className="text-sm text-gray-400">100% 완료 학생</p>
+                    <p className="mt-2 text-2xl font-bold text-white">{fullyCompletedStudents}</p>
+                </div>
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-admin-card-dark overflow-hidden">
+                <div className="grid grid-cols-[minmax(220px,1.3fr)_150px_180px_minmax(260px,2fr)] gap-4 border-b border-white/10 px-6 py-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    <span>Student</span>
+                    <span>Progress</span>
+                    <span>Stage Completion</span>
+                    <span>Stage Breakdown</span>
+                </div>
+
+                {studentRows.length > 0 ? (
+                    <div className="divide-y divide-white/5">
+                        {studentRows.map(row => (
+                            <div key={row.student.studentId} className="grid grid-cols-[minmax(220px,1.3fr)_150px_180px_minmax(260px,2fr)] gap-4 px-6 py-5 items-center">
+                                <div className="min-w-0">
+                                    <p className="font-semibold text-white truncate">{row.student.name}</p>
+                                    <p className="text-sm text-gray-400">{row.student.studentId}</p>
+                                </div>
+
+                                <div>
+                                    <p className="text-sm font-bold text-white">{row.completionRate}%</p>
+                                    <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+                                        <div
+                                            className={`h-full rounded-full ${row.completionRate >= 70 ? 'bg-admin-green' : row.completionRate >= 30 ? 'bg-admin-yellow' : 'bg-admin-pink'}`}
+                                            style={{ width: `${row.completionRate}%` }}
+                                        />
+                                    </div>
+                                    <p className="mt-2 text-xs text-gray-500">{row.completedMissions} / {row.totalStages * 3} missions</p>
+                                </div>
+
+                                <div className="text-sm text-gray-300">
+                                    <span className="font-semibold text-white">{row.completedStages}</span> / {row.totalStages} stages
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                    {row.stageRows.map(stage => (
+                                        <div
+                                            key={stage.id}
+                                            className={`rounded-xl border px-3 py-2 text-xs ${stage.isComplete ? 'border-admin-green/30 bg-admin-green/10 text-admin-green' : 'border-white/10 bg-white/5 text-gray-300'}`}
+                                        >
+                                            <p className="font-semibold">{stage.title}</p>
+                                            <p className="mt-1">{stage.completedCount}/3 complete</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="px-6 py-10 text-center text-gray-500">
+                        이 수업에 등록된 학생이 없습니다.
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const SettingsManagement = () => {
     const { user } = useAuthStore();
     const changeAdminPassword = useAuthStore(state => state.changeAdminPassword);
@@ -3500,7 +3703,7 @@ const ReflectionManagement = ({ courses, registeredStudents, reflections, isSubA
                                             )}
                                             <span>{new Date(entry.timestamp).toLocaleString('ko-KR')}</span>
                                         </div>
-                                        <p className="mt-3 text-base leading-7 text-gray-100">{entry.reflection}</p>
+                                        <p className="mt-3 text-base leading-7 text-gray-300">{entry.reflection}</p>
                                     </article>
                                 ))}
                             </div>
@@ -3790,12 +3993,14 @@ const SubAdminManagement = ({ subAdmins, courses, onAddSubAdmin, onRemoveSubAdmi
 
 export default function AdminPage() {
     const navigate = useNavigate();
+    const isDark = useThemeStore(state => state.isDark);
     const { user, logout, registeredStudents, registerStudent, removeStudent, bulkRegisterStudents, updateStudent, subAdmins, addSubAdmin, removeSubAdmin, updateSubAdmin } = useAuthStore();
     const sessionScores = useAssessmentStore(state => state.sessionScores);
     const { courses, addCourse, deleteCourse } = useStageStore();
     const { submissions: _submissions, totalStars, progress, reflections = [] } = useProgressStore();
     const isSubAdmin = user?.role === 'subadmin';
     const [currentView, setCurrentView] = useState('dashboard');
+    const [selectedProgressCourseId, setSelectedProgressCourseId] = useState('');
     const [searchTerm] = useState('');
     const [showNotifPanel, setShowNotifPanel] = useState(false);
     const [showHelpModal, setShowHelpModal] = useState(false);
@@ -3824,10 +4029,16 @@ export default function AdminPage() {
     ].filter(view => hasViewAccess(view.id));
 
     useEffect(() => {
+        if (currentView === 'progress') return;
         if (!visibleAdminViews.some(view => view.id === currentView)) {
             setCurrentView(visibleAdminViews[0]?.id || 'dashboard');
         }
     }, [currentView, visibleAdminViews]);
+
+    const openCourseProgressView = (courseId) => {
+        setSelectedProgressCourseId(courseId);
+        setCurrentView('progress');
+    };
 
     const courseCompletion = useMemo(() => {
         if (courses.length === 0 || registeredStudents.length === 0) return 0;
@@ -3848,7 +4059,7 @@ export default function AdminPage() {
     }, [courses, registeredStudents, progress])
 
     return (
-        <div className="flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark text-slate-900 dark:text-white font-display">
+        <div className={`admin-theme-shell ${isDark ? 'admin-theme-dark' : 'admin-theme-light'} flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark text-slate-900 dark:text-white font-display`}>
             {/* Sidebar Navigation */}
             <aside className="w-64 flex-shrink-0 flex flex-col bg-admin-primary h-full transition-all duration-300 z-20 shadow-xl relative overflow-y-auto">
                 <div className="p-6 flex items-center gap-3">
@@ -3975,6 +4186,7 @@ export default function AdminPage() {
                         <h2 className="text-2xl font-bold text-white tracking-tight">
                             {currentView === 'dashboard' ? 'Dashboard Overview' :
                                 currentView === 'learners' ? 'Learners' :
+                                    currentView === 'progress' ? 'Course Progress' :
                                     currentView === 'reflection' ? 'Reflection' :
                                     currentView.charAt(0).toUpperCase() + currentView.slice(1)}
                         </h2>
@@ -4126,6 +4338,7 @@ export default function AdminPage() {
                             progress={progress}
                             purchases={purchases}
                             sessionScores={sessionScores}
+                            onOpenCourseProgress={openCourseProgressView}
                         />
                     )}
                     {currentView === 'learners' && (
@@ -4135,6 +4348,18 @@ export default function AdminPage() {
                             onDeleteStudent={removeStudent}
                             onBulkRegister={bulkRegisterStudents}
                             onUpdateStudent={updateStudent}
+                        />
+                    )}
+                    {currentView === 'progress' && (
+                        <CourseProgressManagement
+                            courses={courses}
+                            registeredStudents={registeredStudents}
+                            progress={progress}
+                            isSubAdmin={isSubAdmin}
+                            accessibleCourseIds={user?.courseIds}
+                            selectedCourseId={selectedProgressCourseId}
+                            onSelectCourse={setSelectedProgressCourseId}
+                            onBackToDashboard={() => setCurrentView('dashboard')}
                         />
                     )}
                     {currentView === 'reflection' && (
@@ -4174,7 +4399,7 @@ export default function AdminPage() {
                     {currentView === 'settings' && (
                         <SettingsManagement />
                     )}
-                    {currentView !== 'dashboard' && currentView !== 'learners' && currentView !== 'reflection' && currentView !== 'class' && currentView !== 'assessments' && currentView !== 'marketplace' && currentView !== 'subadmins' && currentView !== 'settings' && (
+                    {currentView !== 'dashboard' && currentView !== 'learners' && currentView !== 'progress' && currentView !== 'reflection' && currentView !== 'class' && currentView !== 'assessments' && currentView !== 'marketplace' && currentView !== 'subadmins' && currentView !== 'settings' && (
                         <div className="flex items-center justify-center h-full text-gray-500">
                             Component for {currentView} is under construction.
                         </div>

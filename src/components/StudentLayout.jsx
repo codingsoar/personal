@@ -2,12 +2,14 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useStageStore } from '../stores/useStageStore';
 import { useProgressStore } from '../stores/useProgressStore';
+import useThemeStore from '../stores/useThemeStore';
 
 export default function StudentLayout({ children, activeTab: propActiveTab }) {
     const navigate = useNavigate();
     const location = useLocation();
     const { user } = useAuthStore();
     const { courses } = useStageStore();
+    const isDark = useThemeStore(state => state.isDark);
 
     const assignedCourseIds = user?.courseIds || [];
     const myClasses = courses.filter(c => assignedCourseIds.includes(c.id));
@@ -25,7 +27,7 @@ export default function StudentLayout({ children, activeTab: propActiveTab }) {
     })();
 
     return (
-        <div className="flex h-screen overflow-hidden bg-background-light text-dark-text font-display transition-colors duration-300">
+        <div className={`student-theme-shell ${isDark ? 'student-theme-dark' : 'student-theme-light'} flex h-screen overflow-hidden bg-background-light text-dark-text font-display transition-colors duration-300`}>
             {/* Sidebar Navigation */}
             <aside className="hidden md:flex flex-col w-24 lg:w-64 h-full bg-white border-r border-accent-purple/20 flex-shrink-0 z-20 transition-all duration-300">
                 <div className="flex items-center justify-center lg:justify-start lg:px-8 h-20">

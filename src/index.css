@@ -61,6 +61,138 @@ body {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
+.student-theme-light {
+  color: #0f172a;
+  background:
+    radial-gradient(circle at top left, rgba(0, 187, 250, 0.12), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(155, 93, 229, 0.1), transparent 28%),
+    #f4f9ff;
+}
+
+.student-theme-dark {
+  color: #e7eef7;
+  background:
+    radial-gradient(circle at top left, rgba(0, 187, 250, 0.18), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(155, 93, 229, 0.16), transparent 30%),
+    #07131d;
+}
+
+.student-theme-dark .bg-background-light,
+.student-theme-dark.bg-background-light {
+  background-color: transparent !important;
+}
+
+.student-theme-dark .bg-white,
+.student-theme-dark .bg-white\/80,
+.student-theme-dark .bg-white\/70 {
+  background-color: rgba(13, 28, 40, 0.88) !important;
+}
+
+.student-theme-dark .bg-slate-50,
+.student-theme-dark .bg-slate-50\/50 {
+  background-color: rgba(18, 39, 57, 0.92) !important;
+}
+
+.student-theme-dark .bg-slate-100 {
+  background-color: rgba(24, 49, 70, 0.95) !important;
+}
+
+.student-theme-dark .bg-slate-200 {
+  background-color: rgba(35, 61, 85, 0.95) !important;
+}
+
+.student-theme-dark .border-slate-100,
+.student-theme-dark .border-slate-200,
+.student-theme-dark .border-slate-300,
+.student-theme-dark .border-accent-purple\/20,
+.student-theme-dark .border-accent-purple\/30,
+.student-theme-dark .border-accent-pink\/20,
+.student-theme-dark .border-amber-200,
+.student-theme-dark .border-primary\/20,
+.student-theme-dark .border-secondary\/20 {
+  border-color: rgba(95, 125, 150, 0.35) !important;
+}
+
+.student-theme-dark .text-slate-900,
+.student-theme-dark .text-slate-800,
+.student-theme-dark .text-dark-text {
+  color: #f3f7fb !important;
+}
+
+.student-theme-dark .text-slate-700,
+.student-theme-dark .text-slate-600 {
+  color: #c2d3e3 !important;
+}
+
+.student-theme-dark .text-slate-500,
+.student-theme-dark .text-slate-400 {
+  color: #90a9bf !important;
+}
+
+.student-theme-dark .shadow-card,
+.student-theme-dark .shadow-xl,
+.student-theme-dark .shadow-2xl,
+.student-theme-dark .shadow-lg,
+.student-theme-dark .shadow-sm {
+  box-shadow: 0 16px 40px rgba(2, 8, 16, 0.35) !important;
+}
+
+.student-theme-dark input,
+.student-theme-dark textarea,
+.student-theme-dark select {
+  color: #f3f7fb;
+  background-color: rgba(16, 33, 48, 0.92);
+}
+
+.student-theme-dark input::placeholder,
+.student-theme-dark textarea::placeholder {
+  color: #7f98af;
+}
+
+.admin-theme-light {
+  color: #132033;
+  background:
+    radial-gradient(circle at top left, rgba(155, 93, 229, 0.1), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(0, 187, 249, 0.12), transparent 30%),
+    #f6f7fb;
+}
+
+.admin-theme-light .bg-admin-primary,
+.admin-theme-light .bg-admin-card-dark,
+.admin-theme-light .bg-background-dark,
+.admin-theme-light .bg-background-dark\/80 {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.admin-theme-light .text-white,
+.admin-theme-light .text-white\/80,
+.admin-theme-light .text-white\/70 {
+  color: #132033 !important;
+}
+
+.admin-theme-light .text-gray-200,
+.admin-theme-light .text-gray-300 {
+  color: #3f5368 !important;
+}
+
+.admin-theme-light .text-gray-400,
+.admin-theme-light .text-gray-500,
+.admin-theme-light .text-gray-600 {
+  color: #66788c !important;
+}
+
+.admin-theme-light .border-white\/5,
+.admin-theme-light .border-white\/10,
+.admin-theme-light .border-white\/20 {
+  border-color: rgba(19, 32, 51, 0.1) !important;
+}
+
+.admin-theme-light .shadow-xl,
+.admin-theme-light .shadow-2xl,
+.admin-theme-light .shadow-lg {
+  box-shadow: 0 18px 44px rgba(74, 85, 104, 0.12) !important;
+}
+
 /* ── 유틸리티 ── */
 .star-glow {
   filter: drop-shadow(0 0 6px rgba(246, 173, 85, 0.6));

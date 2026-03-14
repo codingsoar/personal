@@ -840,6 +840,107 @@ Copy this block for every new entry:
 ### Notes
 - The new settings form changes only the default `admin` account password; sub-admin password management remains in the existing sub-admin management flow.
 
+## 2026-03-15 - Interface Theme Separation
+
+### Request
+- Make light mode and dark mode apply as clearly separated interface themes.
+
+### Scope
+- `src/index.css` shared theme overrides.
+- `src/components/StudentLayout.jsx`, `src/pages/StudentDashboardPage.jsx`, and `src/pages/AdminPage.jsx` root theme shell wiring.
+
+### Implemented
+- Added `student-theme-light/dark` and `admin-theme-light/dark` shell classes to the main student/admin app wrappers.
+- Added scoped CSS overrides so dark-mode student screens switch card, border, text, and input colors away from the previous light-only palette.
+- Added scoped CSS overrides so light-mode admin screens stop rendering as always-dark and use brighter surfaces/text.
+
+### Validation
+- `npx eslint src/pages/AdminPage.jsx src/pages/StudentDashboardPage.jsx src/components/StudentLayout.jsx` -> Success
+- `npm run build` -> Sandbox failed (`spawn EPERM`), escalated success
+
+### Files
+- `src/index.css`
+- `src/components/StudentLayout.jsx`
+- `src/pages/StudentDashboardPage.jsx`
+- `src/pages/AdminPage.jsx`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- The change is implemented as scoped CSS theme-shell overrides so existing page structures remain intact without large JSX churn across every screen.
+
+## 2026-03-15 - Admin Reflection Light Mode Contrast
+
+### Request
+- In admin `Reflection`, make the student-written sentence easier to read in light mode by using a color similar to surrounding text.
+
+### Scope
+- `src/pages/AdminPage.jsx` reflection-entry text color only.
+- No reflection data or layout changes.
+
+### Implemented
+- Changed the reflection body text class from `text-gray-100` to `text-gray-300` in the admin reflection card content.
+
+### Validation
+- `npx eslint src/pages/AdminPage.jsx` -> Success
+
+### Files
+- `src/pages/AdminPage.jsx`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- This specifically improves the light-mode contrast inside the admin reflection cards while keeping dark-mode styling compatible with the existing theme-shell overrides.
+
+## 2026-03-15 - Admin Course Progress Detail View
+
+### Request
+- Let admins check student progress for each class.
+- It could be a new tab or entered by clicking the per-course progress block on the dashboard.
+
+### Scope
+- `src/pages/AdminPage.jsx` dashboard course-progress block and a new course progress detail view.
+- No progress data model changes were required.
+
+### Implemented
+- Made the dashboard per-course progress cards clickable.
+- Added `CourseProgressManagement` in the admin page, opened from the dashboard and filtered by selected course.
+- Added per-course summary cards for enrolled students, average progress, and fully completed students.
+- Added per-student rows with mission completion percentage, completed stages count, and stage-by-stage completion chips.
+- Restricted the detail view to accessible courses for sub-admins.
+
+### Validation
+- `npx eslint src/pages/AdminPage.jsx` -> Success
+- `npm run build` -> Sandbox failed (`spawn EPERM`), escalated success
+
+### Files
+- `src/pages/AdminPage.jsx`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- The course progress detail view is currently an internal admin view entered from the dashboard course-progress section, not a dedicated sidebar menu item.
+
+## 2026-03-15 - Course Progress Dropdown Theme Fix
+
+### Request
+- In `Course Progress`, make the course selection dropdown readable in both light and dark themes.
+
+### Scope
+- `src/pages/AdminPage.jsx` course-progress course selector only.
+- No data or layout changes beyond dropdown theming.
+
+### Implemented
+- Wired `CourseProgressManagement` to the current theme state.
+- Changed the course `<select>` and `<option>` styles to use light text/background in dark mode and dark text/background in light mode.
+
+### Validation
+- `npx eslint src/pages/AdminPage.jsx` -> Success
+
+### Files
+- `src/pages/AdminPage.jsx`
+- `ANTIGRAVITY_WORKLOG.md`
+
+### Notes
+- The fix is localized to the admin course-progress selector and does not change other admin dropdowns.
+
 ## 2026-03-12 - Fix Unassigned Class Visibility Bug
 
 ### Request
